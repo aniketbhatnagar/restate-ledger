@@ -22,8 +22,8 @@ public class Ledger {
       Operation operation,
       Money amount,
       Account.AccountSummary accountSummary,
-      // If the balance change is debit and was done using a hold.
-      Optional<String> holdId,
+      // If the balance change involves using a hold.
+      Optional<Account.HoldSummary> holdSummary,
       TransactionMetadata transactionMetadata) {}
 
   public record RecordBalanceHoldInstruction(

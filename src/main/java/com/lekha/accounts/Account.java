@@ -96,6 +96,7 @@ public class Account {
     String accountId = ctx.key();
 
     AccountOptions accountOptions = getAccountOptionsOrThrow(ctx);
+    Optional<HoldSummary> holdSummary = Optional.empty();
     AccountBalances newBalances;
     if (accountOptions.accountType().doDebitsDecreaseBalance()) {
       Optional<String> holdIdOpt = instruction.options().holdId();
@@ -107,6 +108,7 @@ public class Account {
         checkEnoughBalance(holdId, holdBalance, amountToDebit);
         Money newHoldBalance = holdBalance.subtract(amountToDebit);
         ctx.set(holdStateKey, new HoldState(newHoldBalance));
+        holdSummary = Optional.of(new HoldSummary(holdId, newHoldBalance));
 
         newBalances = currentBalances.subtractHoldBalance(amountToDebit);
       } else {
@@ -126,7 +128,7 @@ public class Account {
         Ledger.Operation.DEBIT,
         amountToDebit,
         accountSummary,
-        instruction.options().holdId(),
+        holdSummary,
         instruction.options().transactionMetadata);
 
     return accountSummary;
@@ -216,7 +218,7 @@ public class Account {
       Ledger.Operation operation,
       Money amount,
       AccountSummary accountSummary,
-      Optional<String> holdId,
+      Optional<HoldSummary> holdSummary,
       TransactionMetadata transactionMetadata) {
     Ledger.RecordBalanceChangeInstruction instruction =
         new Ledger.RecordBalanceChangeInstruction(
@@ -225,7 +227,7 @@ public class Account {
             operation,
             amount,
             accountSummary,
-            holdId,
+            holdSummary,
             transactionMetadata);
     LedgerClient.ContextClient ledgerClient = LedgerClient.fromContext(ctx, ctx.key());
     // Ledger entries can be posted async
