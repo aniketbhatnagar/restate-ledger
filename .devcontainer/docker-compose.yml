@@ -1,0 +1,29 @@
+services:
+  devcontainer:
+    image: mcr.microsoft.com/devcontainers/java:1-21-bullseye
+    volumes:
+      - ../.:/workspaces:cached
+    command: sleep infinity
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    ports:
+      - "16686:16686"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  runtime:
+    image: docker.io/restatedev/restate
+    depends_on:
+      - jaeger
+    ports:
+      - "9070:9070"
+      - "9071:9071"
+      - "8080:8080"
+    volumes:
+      - ./restate-docker.toml:/restate.toml:Z,ro
+    environment:
+      - RESTATE_CONFIG=/restate.toml
+  # remove those comments when running delivery services directly (in IDE, standalone), so the runtime can reach out to them
+  #    extra_hosts:
+  #      - "delivery_service:host-gateway"
