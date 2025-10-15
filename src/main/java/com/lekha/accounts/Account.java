@@ -32,6 +32,8 @@ public class Account {
 
   public record HoldInstruction(Money amountToHold, HoldOptions options) {}
 
+  public record ReleaseHoldInstruction(String holdId, HoldOptions options) {}
+
   public record AccountBalances(Money availableBalance, Money holdBalance) {
     public static AccountBalances empty(Currency currency) {
       Money zeroBalance = Money.zero(currency);
@@ -51,6 +53,11 @@ public class Account {
           availableBalance.subtract(amountToHold), holdBalance.add(amountToHold));
     }
 
+    public AccountBalances releaseHold(Money amountToRelease) {
+      return new AccountBalances(
+          availableBalance.add(amountToRelease), holdBalance.subtract(amountToRelease));
+    }
+
     public AccountBalances subtractHoldBalance(Money amountToSubtract) {
       return new AccountBalances(availableBalance, holdBalance.subtract(amountToSubtract));
     }
@@ -61,6 +68,9 @@ public class Account {
   public record HoldSummary(String holdId, Money balance) {}
 
   public record HoldResult(AccountSummary accountSummary, HoldSummary holdSummary) {}
+
+  public record ReleaseHoldResult(
+      AccountSummary accountSummary, HoldSummary holdSummary, Money releasedAmount) {}
 
   public record AccountState(AccountBalances balances) {
     public static AccountState empty(Currency currency) {
@@ -208,6 +218,38 @@ public class Account {
   }
 
   @Handler
+  public ReleaseHoldResult releaseHold(ObjectContext ctx, ReleaseHoldInstruction instruction) {
+    AccountState accountState = getAccountStateOrThrow(ctx);
+    AccountBalances currentBalances = accountState.balances();
+    String accountId = ctx.key();
+    HoldState holdState = getHoldStateOrThrow(ctx, holdStateKey(instruction.holdId));
+    Money amountToRelease = holdState.balance();
+    amountToRelease.ensurePositive();
+    ctx.clear(holdStateKey(instruction.holdId));
+
+    if (currentBalances.holdBalance().isLessThan(amountToRelease)) {
+      throw new IllegalStateException(
+          "Releasing more than hold balance. This should never happen.");
+    }
+
+    AccountBalances newBalances = currentBalances.releaseHold(amountToRelease);
+    AccountState newState = new AccountState(newBalances);
+    ctx.set(ACCOUNT_STATE_KEY, newState);
+
+    AccountSummary accountSummary = new AccountSummary(accountId, newBalances);
+    HoldSummary holdSummary = new HoldSummary(accountId, Money.zero(amountToRelease.currency()));
+
+    recordBalanceReleaseHoldInLedger(
+        ctx,
+        amountToRelease,
+        accountSummary,
+        holdSummary,
+        instruction.options().transactionMetadata());
+
+    return new ReleaseHoldResult(accountSummary, holdSummary, amountToRelease);
+  }
+
+  @Handler
   public HoldSummary getHoldSummary(ObjectContext ctx, String holdId) {
     HoldState holdState = getHoldStateOrThrow(ctx, holdStateKey(holdId));
     return new HoldSummary(holdId, holdState.balance());
@@ -251,6 +293,25 @@ public class Account {
     LedgerClient.ContextClient ledgerClient = LedgerClient.fromContext(ctx, ctx.key());
     // Ledger entries can be posted async
     ledgerClient.recordBalanceHold(instruction);
+  }
+
+  private void recordBalanceReleaseHoldInLedger(
+      ObjectContext ctx,
+      Money amount,
+      AccountSummary accountSummary,
+      Account.HoldSummary holdSummary,
+      TransactionMetadata transactionMetadata) {
+    Ledger.RecordBalanceHoldReleaseInstruction instruction =
+        new Ledger.RecordBalanceHoldReleaseInstruction(
+            ledgerIdem(ctx),
+            ledgerTimestampMs(),
+            amount,
+            accountSummary,
+            holdSummary,
+            transactionMetadata);
+    LedgerClient.ContextClient ledgerClient = LedgerClient.fromContext(ctx, ctx.key());
+    // Ledger entries can be posted async
+    ledgerClient.recordBalanceHoldRelease(instruction);
   }
 
   private static void checkEnoughBalance(

@@ -34,4 +34,10 @@ public record Money(Currency currency, BigInteger amountInMinorUnits) {
           "Currency " + currency + " does not match account " + other.currency());
     }
   }
+
+  public void ensurePositive() {
+    if (amountInMinorUnits.compareTo(BigInteger.ZERO) <= 0) {
+      throw new IllegalArgumentException("Amount must be positive");
+    }
+  }
 }

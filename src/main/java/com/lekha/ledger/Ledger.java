@@ -36,7 +36,6 @@ public class Ledger {
 
   public record RecordBalanceHoldReleaseInstruction(
       String idem,
-      String accountId,
       long timestampMs,
       Money amount,
       Account.AccountSummary accountSummary,

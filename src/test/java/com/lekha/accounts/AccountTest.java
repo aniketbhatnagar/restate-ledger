@@ -104,10 +104,10 @@ public class AccountTest extends BaseRestateTest {
 
     int amountToHold2 = 75;
     holdResult = accountClient.hold(holdInstruction(amountToHold2));
-    int expectedAvailableBalance = initialBalance - amountToHold1 - amountToHold2;
+    int expectedAvailableBalanceAfterHold = initialBalance - amountToHold1 - amountToHold2;
     int totalHold = amountToHold1 + amountToHold2;
     assertSummaryAndCurrentBalances(
-        holdResult.accountSummary(), expectedAvailableBalance, totalHold);
+        holdResult.accountSummary(), expectedAvailableBalanceAfterHold, totalHold);
     assertSummaryAndCurrentBalances(holdResult.holdSummary(), amountToHold2);
     Account.HoldSummary holdSummary2 = holdResult.holdSummary();
 
@@ -115,9 +115,19 @@ public class AccountTest extends BaseRestateTest {
     Account.AccountSummary accountSummary =
         accountClient.debit(debitInstruction(amountToDebit, holdSummary1.holdId()));
     assertSummaryAndCurrentBalances(
-        accountSummary, expectedAvailableBalance, totalHold - amountToDebit);
+        accountSummary, expectedAvailableBalanceAfterHold, totalHold - amountToDebit);
     assertCurrentHoldBalance(holdSummary1.holdId(), amountToHold1 - amountToDebit);
     assertCurrentHoldBalance(holdSummary2.holdId(), amountToHold2);
+
+    Account.ReleaseHoldResult releaseHoldResult =
+        accountClient.releaseHold(releaseHoldInstruction(holdSummary1.holdId()));
+    assertThat(releaseHoldResult.releasedAmount().currency()).isEqualTo(TEST_CURRENCY);
+    assertThat(releaseHoldResult.releasedAmount().amountInMinorUnits())
+        .isEqualTo(amountToHold1 - amountToDebit);
+    assertSummaryAndCurrentBalances(
+        releaseHoldResult.accountSummary(),
+        initialBalance - amountToHold2 - amountToDebit,
+        amountToHold2);
   }
 
   private Account.AccountSummary initAccount(AccountType accountType) {
@@ -186,5 +196,10 @@ public class AccountTest extends BaseRestateTest {
   private void assertSummaryAndCurrentBalances(Account.HoldSummary holdSummary, int balance) {
     assertHoldBalance(holdSummary, balance);
     assertCurrentHoldBalance(holdSummary.holdId(), balance);
+  }
+
+  private Account.ReleaseHoldInstruction releaseHoldInstruction(String holdId) {
+    return new Account.ReleaseHoldInstruction(
+        holdId, new Account.HoldOptions(TransactionMetadataFactory.transactionMetadata()));
   }
 }
