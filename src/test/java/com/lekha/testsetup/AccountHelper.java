@@ -46,11 +46,17 @@ public class AccountHelper {
         .isEqualTo(balance);
   }
 
-  public Account.HoldResult holdBalance(int holdAmount) {
+  public Account.HoldResult hold(int holdAmount) {
     return accountClient.hold(
         new Account.HoldInstruction(
             new Money(this.currency, BigInteger.valueOf(holdAmount)),
             new Account.HoldOptions(TransactionMetadataFactory.transactionMetadata())));
+  }
+
+  public Account.ReleaseHoldResult releaseHold(String holdId) {
+    return accountClient.releaseHold(
+        new Account.ReleaseHoldInstruction(
+            holdId, new Account.HoldOptions(TransactionMetadataFactory.transactionMetadata())));
   }
 
   public void assertHoldBalance(int balance) {

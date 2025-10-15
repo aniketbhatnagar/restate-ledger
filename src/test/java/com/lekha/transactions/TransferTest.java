@@ -1,5 +1,6 @@
 package com.lekha.transactions;
 
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatExceptionOfType;
 
 import com.lekha.accounts.Account;
@@ -136,7 +137,7 @@ public class TransferTest extends BaseRestateTest {
   }
 
   @Test
-  public void bulkMove_orderFillScenario() {
+  public void bulkMove_orderPartialFillScenario() {
     String assetAccountId = UUID.randomUUID() + "-asset-1";
     String liabilityAccountId = UUID.randomUUID() + "-liability-1";
     AccountHelper assetAccount =
@@ -154,7 +155,8 @@ public class TransferTest extends BaseRestateTest {
                 moveMoneyInstructionOptions())));
 
     int orderAmount = 750;
-    Account.HoldResult holdResult = liabilityAccount.holdBalance(orderAmount);
+    Account.HoldResult holdResult = liabilityAccount.hold(orderAmount);
+    String holdId = holdResult.holdSummary().holdId();
     liabilityAccount.assertAvailableBalance(initialBalance - orderAmount);
     liabilityAccount.assertHoldBalance(orderAmount);
 
@@ -168,12 +170,19 @@ public class TransferTest extends BaseRestateTest {
                         liabilityAccountId,
                         assetAccountId,
                         new Money(Currency.USD, BigInteger.valueOf(fill)),
-                        moveMoneyInstructionOptions(holdResult.holdSummary().holdId())))
+                        moveMoneyInstructionOptions(holdId)))
             .toList();
     transferClient.bulkMove(moveMoneyInstructions);
 
     liabilityAccount.assertAvailableBalance(initialBalance - orderAmount);
     liabilityAccount.assertHoldBalance(orderAmount - totalOrderFills);
+    assetAccount.assertAvailableBalance(initialBalance - totalOrderFills);
+
+    Account.ReleaseHoldResult releaseHoldResult = liabilityAccount.releaseHold(holdId);
+    assertThat(releaseHoldResult.releasedAmount().amountInMinorUnits())
+        .isEqualTo(BigInteger.valueOf(orderAmount - totalOrderFills));
+    liabilityAccount.assertAvailableBalance(initialBalance - totalOrderFills);
+    liabilityAccount.assertHoldBalance(0);
     assetAccount.assertAvailableBalance(initialBalance - totalOrderFills);
   }
 
