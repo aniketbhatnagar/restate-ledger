@@ -7,9 +7,10 @@ import com.lekha.money.Currency;
 import com.lekha.money.Money;
 import com.lekha.transactions.TransactionMetadata;
 import dev.restate.sdk.ObjectContext;
+import dev.restate.sdk.SharedObjectContext;
 import dev.restate.sdk.annotation.Handler;
+import dev.restate.sdk.annotation.Shared;
 import dev.restate.sdk.annotation.VirtualObject;
-import dev.restate.sdk.common.StateKey;
 import dev.restate.sdk.common.TerminalException;
 import java.util.Optional;
 
@@ -24,9 +25,13 @@ public class Account {
 
   public record DebitInstruction(Money amountToDebit, DebitOptions options) {}
 
+  public record DebitResult(AccountSummary accountSummary, Optional<HoldSummary> holdSummary) {}
+
   public record CreditOptions(Optional<String> holdId, TransactionMetadata transactionMetadata) {}
 
   public record CreditInstruction(Money amountToCredit, CreditOptions options) {}
+
+  public record CreditResult(AccountSummary accountSummary) {}
 
   public record HoldOptions(TransactionMetadata transactionMetadata) {}
 
@@ -39,28 +44,6 @@ public class Account {
       Money zeroBalance = Money.zero(currency);
       return new AccountBalances(zeroBalance, zeroBalance);
     }
-
-    public AccountBalances addAvailableBalance(Money amountToAdd) {
-      return new AccountBalances(availableBalance.add(amountToAdd), holdBalance);
-    }
-
-    public AccountBalances subtractAvailableBalance(Money amountToSubtract) {
-      return new AccountBalances(availableBalance.subtract(amountToSubtract), holdBalance);
-    }
-
-    public AccountBalances hold(Money amountToHold) {
-      return new AccountBalances(
-          availableBalance.subtract(amountToHold), holdBalance.add(amountToHold));
-    }
-
-    public AccountBalances releaseHold(Money amountToRelease) {
-      return new AccountBalances(
-          availableBalance.add(amountToRelease), holdBalance.subtract(amountToRelease));
-    }
-
-    public AccountBalances subtractHoldBalance(Money amountToSubtract) {
-      return new AccountBalances(availableBalance, holdBalance.subtract(amountToSubtract));
-    }
   }
 
   public record AccountSummary(String accountId, AccountBalances balances) {}
@@ -72,187 +55,164 @@ public class Account {
   public record ReleaseHoldResult(
       AccountSummary accountSummary, HoldSummary holdSummary, Money releasedAmount) {}
 
-  public record AccountState(AccountBalances balances) {
-    public static AccountState empty(Currency currency) {
-      return new AccountState(AccountBalances.empty(currency));
-    }
-  }
-
-  public record HoldState(Money balance) {}
-
-  private static final StateKey<AccountState> ACCOUNT_STATE_KEY =
-      StateKey.of("account_state", AccountState.class);
-  private static final StateKey<AccountOptions> ACCOUNT_OPTIONS_KEY =
-      StateKey.of("account_options", AccountOptions.class);
-  private static final String HOLD_STATE_KEY_PREFIX = "hold_";
-
   @Handler
   public AccountSummary init(ObjectContext ctx, InitInstruction instruction) {
-    if (ctx.get(ACCOUNT_OPTIONS_KEY).isEmpty()) {
-      ctx.set(ACCOUNT_OPTIONS_KEY, instruction.accountOptions());
-      AccountState state = AccountState.empty(instruction.accountOptions().nativeCurrency());
-      ctx.set(ACCOUNT_STATE_KEY, state);
-      return new AccountSummary(ctx.key(), state.balances());
-    }
-    AccountState accountState = getAccountStateOrThrow(ctx);
-    return new AccountSummary(ctx.key(), accountState.balances());
-  }
-
-  @Handler
-  public AccountSummary debit(ObjectContext ctx, DebitInstruction instruction) {
-    AccountState accountState = getAccountStateOrThrow(ctx);
-    AccountBalances currentBalances = accountState.balances();
-    Money amountToDebit = instruction.amountToDebit();
-    String accountId = ctx.key();
-
-    AccountOptions accountOptions = getAccountOptionsOrThrow(ctx);
-    Optional<HoldSummary> holdSummary = Optional.empty();
-    AccountBalances newBalances;
-    if (accountOptions.accountType().doDebitsDecreaseBalance()) {
-      Optional<String> holdIdOpt = instruction.options().holdId();
-      if (holdIdOpt.isPresent()) {
-        String holdId = holdIdOpt.get();
-        StateKey<HoldState> holdStateKey = holdStateKey(holdId);
-        HoldState holdState = getHoldStateOrThrow(ctx, holdStateKey);
-        Money holdBalance = holdState.balance();
-        checkEnoughBalance(holdId, holdBalance, amountToDebit);
-        Money newHoldBalance = holdBalance.subtract(amountToDebit);
-        ctx.set(holdStateKey, new HoldState(newHoldBalance));
-        holdSummary = Optional.of(new HoldSummary(holdId, newHoldBalance));
-
-        newBalances = currentBalances.subtractHoldBalance(amountToDebit);
-      } else {
-        Money currentBalance = currentBalances.availableBalance();
-        checkEnoughBalance(accountId, currentBalance, amountToDebit);
-        newBalances = currentBalances.subtractAvailableBalance(amountToDebit);
+    if (!AccountOptionsState.exists(ctx)) {
+      AccountOptionsState.create(ctx, instruction.accountOptions());
+      try (AccountBalancesState accountBalancesState =
+          AccountBalancesState.create(ctx, instruction.accountOptions().nativeCurrency())) {
+        return new AccountSummary(ctx.key(), accountBalancesState.balances());
       }
-    } else {
-      newBalances = currentBalances.addAvailableBalance(amountToDebit);
     }
-    AccountState newState = new AccountState(newBalances);
-    ctx.set(ACCOUNT_STATE_KEY, newState);
 
-    AccountSummary accountSummary = new AccountSummary(accountId, newState.balances());
-    recordBalanceChangeInLedger(
-        ctx,
-        Ledger.Operation.DEBIT,
-        amountToDebit,
-        accountSummary,
-        holdSummary,
-        instruction.options().transactionMetadata);
-
-    return accountSummary;
+    return this.getSummary(ctx);
   }
 
   @Handler
-  public AccountSummary credit(ObjectContext ctx, CreditInstruction instruction) {
+  public DebitResult debit(ObjectContext ctx, DebitInstruction instruction) {
+    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+      Money amountToDebit = instruction.amountToDebit();
+      String accountId = ctx.key();
+      AccountOptions accountOptions = AccountOptionsState.getExisting(ctx).accountOptions();
+      Optional<HoldSummary> holdSummary = Optional.empty();
+
+      if (accountOptions.accountType().doDebitsDecreaseBalance()) {
+        Optional<String> holdIdOpt = instruction.options().holdId();
+        if (holdIdOpt.isPresent()) {
+          String holdId = holdIdOpt.get();
+          try (HoldBalanceState holdBalanceState = HoldBalanceState.getExisting(ctx, holdId)) {
+            holdBalanceState.subtractAvailableBalance(amountToDebit);
+            holdSummary = Optional.of(new HoldSummary(holdId, holdBalanceState.availableBalance()));
+
+            accountBalancesState.subtractHoldBalance(amountToDebit);
+          }
+        } else {
+          accountBalancesState.subtractAvailableBalance(amountToDebit);
+        }
+      } else {
+        accountBalancesState.addAvailableBalance(amountToDebit);
+      }
+
+      AccountSummary accountSummary =
+          new AccountSummary(accountId, accountBalancesState.balances());
+      recordBalanceChangeInLedger(
+          ctx,
+          Ledger.Operation.DEBIT,
+          amountToDebit,
+          accountSummary,
+          holdSummary,
+          instruction.options().transactionMetadata);
+
+      return new DebitResult(accountSummary, holdSummary);
+    }
+  }
+
+  @Handler
+  public CreditResult credit(ObjectContext ctx, CreditInstruction instruction) {
     // TODO: Support crediting to hold (needed in case of reversal)
-    AccountState accountState = getAccountStateOrThrow(ctx);
-    AccountBalances currentBalances = accountState.balances();
-    Money amountToCredit = instruction.amountToCredit();
-    String accountId = ctx.key();
+    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+      Money amountToCredit = instruction.amountToCredit();
+      String accountId = ctx.key();
 
-    AccountOptions accountOptions = getAccountOptionsOrThrow(ctx);
-    Money currentBalance = currentBalances.availableBalance();
-    AccountBalances newBalances;
-    if (accountOptions.accountType().doCreditsDecreaseBalance()) {
-      checkEnoughBalance(accountId, currentBalance, amountToCredit);
-      newBalances = currentBalances.subtractAvailableBalance(amountToCredit);
-    } else {
-      newBalances = currentBalances.addAvailableBalance(amountToCredit);
+      AccountOptions accountOptions = AccountOptionsState.getExisting(ctx).accountOptions();
+      if (accountOptions.accountType().doCreditsDecreaseBalance()) {
+        accountBalancesState.subtractAvailableBalance(amountToCredit);
+      } else {
+        accountBalancesState.addAvailableBalance(amountToCredit);
+      }
+
+      AccountSummary accountSummary =
+          new AccountSummary(accountId, accountBalancesState.balances());
+      recordBalanceChangeInLedger(
+          ctx,
+          Ledger.Operation.CREDIT,
+          amountToCredit,
+          accountSummary,
+          Optional.empty(), // TODO: Credit to hold not supported.
+          instruction.options().transactionMetadata());
+
+      return new CreditResult(accountSummary);
     }
-    AccountState newState = new AccountState(newBalances);
-    ctx.set(ACCOUNT_STATE_KEY, newState);
-
-    AccountSummary accountSummary = new AccountSummary(accountId, newState.balances());
-    recordBalanceChangeInLedger(
-        ctx,
-        Ledger.Operation.CREDIT,
-        amountToCredit,
-        accountSummary,
-        Optional.empty(), // TODO: Credit to hold not supported.
-        instruction.options().transactionMetadata());
-
-    return accountSummary;
   }
 
+  @Shared
   @Handler
-  public AccountSummary getSummary(ObjectContext ctx) {
-    AccountState accountState = getAccountStateOrThrow(ctx);
-    return new AccountSummary(ctx.key(), accountState.balances());
+  public AccountSummary getSummary(SharedObjectContext ctx) {
+    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+      return new AccountSummary(ctx.key(), accountBalancesState.balances());
+    }
   }
 
   @Handler
   public HoldResult hold(ObjectContext ctx, HoldInstruction instruction) {
-    AccountState accountState = getAccountStateOrThrow(ctx);
-    AccountBalances currentBalances = accountState.balances();
-    Money currentAvailableBalance = currentBalances.availableBalance();
-    Money amountToHold = instruction.amountToHold();
-    String accountId = ctx.key();
+    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+      Money amountToHold = instruction.amountToHold();
+      String accountId = ctx.key();
 
-    AccountOptions accountOptions = getAccountOptionsOrThrow(ctx);
-    if (!accountOptions.accountType().doDebitsDecreaseBalance()) {
-      throw new TerminalException("Cannot hold balances on this account. Account id: " + accountId);
+      AccountOptions accountOptions = AccountOptionsState.getExisting(ctx).accountOptions();
+      if (!accountOptions.accountType().doDebitsDecreaseBalance()) {
+        throw new TerminalException(
+            "Cannot hold balances on this account. Account id: " + accountId);
+      }
+
+      accountBalancesState.hold(amountToHold);
+
+      String holdId = ctx.random().nextUUID().toString();
+      try (HoldBalanceState holdBalanceState =
+          HoldBalanceState.create(ctx, holdId, amountToHold.currency())) {
+        holdBalanceState.addAvailableBalance(amountToHold);
+
+        AccountSummary accountSummary =
+            new AccountSummary(accountId, accountBalancesState.balances());
+        HoldSummary holdSummary = new HoldSummary(holdId, holdBalanceState.availableBalance());
+
+        recordBalanceHoldInLedger(
+            ctx,
+            amountToHold,
+            accountSummary,
+            holdSummary,
+            instruction.options().transactionMetadata());
+
+        return new HoldResult(accountSummary, holdSummary);
+      }
     }
-
-    checkEnoughBalance(accountId, currentAvailableBalance, amountToHold);
-    AccountBalances newBalances = currentBalances.hold(amountToHold);
-    AccountState newState = new AccountState(newBalances);
-    ctx.set(ACCOUNT_STATE_KEY, newState);
-
-    String holdId = ctx.random().nextUUID().toString();
-    HoldState holdState = new HoldState(amountToHold);
-    ctx.set(holdStateKey(holdId), holdState);
-
-    AccountSummary accountSummary = new AccountSummary(accountId, newState.balances());
-    HoldSummary holdSummary = new HoldSummary(holdId, amountToHold);
-
-    recordBalanceHoldInLedger(
-        ctx,
-        amountToHold,
-        accountSummary,
-        holdSummary,
-        instruction.options().transactionMetadata());
-
-    return new HoldResult(accountSummary, holdSummary);
   }
 
   @Handler
   public ReleaseHoldResult releaseHold(ObjectContext ctx, ReleaseHoldInstruction instruction) {
-    AccountState accountState = getAccountStateOrThrow(ctx);
-    AccountBalances currentBalances = accountState.balances();
-    String accountId = ctx.key();
-    HoldState holdState = getHoldStateOrThrow(ctx, holdStateKey(instruction.holdId));
-    Money amountToRelease = holdState.balance();
-    amountToRelease.ensurePositive();
-    ctx.clear(holdStateKey(instruction.holdId));
+    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+      String accountId = ctx.key();
+      try (HoldBalanceState holdBalanceState =
+          HoldBalanceState.getExisting(ctx, instruction.holdId)) {
+        Money amountToRelease = holdBalanceState.availableBalance();
+        amountToRelease.ensurePositive();
+        holdBalanceState.subtractAvailableBalance(amountToRelease);
 
-    if (currentBalances.holdBalance().isLessThan(amountToRelease)) {
-      throw new IllegalStateException(
-          "Releasing more than hold balance. This should never happen.");
+        accountBalancesState.releaseHold(amountToRelease);
+
+        AccountSummary accountSummary =
+            new AccountSummary(accountId, accountBalancesState.balances());
+        HoldSummary holdSummary =
+            new HoldSummary(accountId, Money.zero(amountToRelease.currency()));
+
+        recordBalanceReleaseHoldInLedger(
+            ctx,
+            amountToRelease,
+            accountSummary,
+            holdSummary,
+            instruction.options().transactionMetadata());
+
+        return new ReleaseHoldResult(accountSummary, holdSummary, amountToRelease);
+      }
     }
-
-    AccountBalances newBalances = currentBalances.releaseHold(amountToRelease);
-    AccountState newState = new AccountState(newBalances);
-    ctx.set(ACCOUNT_STATE_KEY, newState);
-
-    AccountSummary accountSummary = new AccountSummary(accountId, newBalances);
-    HoldSummary holdSummary = new HoldSummary(accountId, Money.zero(amountToRelease.currency()));
-
-    recordBalanceReleaseHoldInLedger(
-        ctx,
-        amountToRelease,
-        accountSummary,
-        holdSummary,
-        instruction.options().transactionMetadata());
-
-    return new ReleaseHoldResult(accountSummary, holdSummary, amountToRelease);
   }
 
+  @Shared
   @Handler
-  public HoldSummary getHoldSummary(ObjectContext ctx, String holdId) {
-    HoldState holdState = getHoldStateOrThrow(ctx, holdStateKey(holdId));
-    return new HoldSummary(holdId, holdState.balance());
+  public HoldSummary getHoldSummary(SharedObjectContext ctx, String holdId) {
+    try (HoldBalanceState holdBalanceState = HoldBalanceState.getExisting(ctx, holdId)) {
+      return new HoldSummary(holdId, holdBalanceState.availableBalance());
+    }
   }
 
   private void recordBalanceChangeInLedger(
@@ -312,38 +272,6 @@ public class Account {
     LedgerClient.ContextClient ledgerClient = LedgerClient.fromContext(ctx, ctx.key());
     // Ledger entries can be posted async
     ledgerClient.recordBalanceHoldRelease(instruction);
-  }
-
-  private static void checkEnoughBalance(
-      String accountOrHoldId, Money currentBalance, Money amountToSubtract) {
-    if (currentBalance.isLessThan(amountToSubtract)) {
-      throw new TerminalException(
-          "Cannot take "
-              + amountToSubtract.amountInMinorUnits()
-              + " from current balance "
-              + currentBalance.amountInMinorUnits()
-              + " for account/hold id"
-              + accountOrHoldId);
-    }
-  }
-
-  private AccountState getAccountStateOrThrow(ObjectContext ctx) {
-    return ctx.get(ACCOUNT_STATE_KEY)
-        .orElseThrow(() -> new TerminalException("account state not present"));
-  }
-
-  private AccountOptions getAccountOptionsOrThrow(ObjectContext ctx) {
-    return ctx.get(ACCOUNT_OPTIONS_KEY)
-        .orElseThrow(() -> new TerminalException("account options not present"));
-  }
-
-  private HoldState getHoldStateOrThrow(ObjectContext ctx, StateKey<HoldState> holdStateStateKey) {
-    return ctx.get(holdStateStateKey)
-        .orElseThrow(() -> new TerminalException("hold state not present"));
-  }
-
-  private static StateKey<HoldState> holdStateKey(String holdId) {
-    return StateKey.of(ACCOUNT_STATE_KEY + holdId, HoldState.class);
   }
 
   private static String ledgerIdem(ObjectContext ctx) {

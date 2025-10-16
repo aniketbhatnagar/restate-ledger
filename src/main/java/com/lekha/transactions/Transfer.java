@@ -85,19 +85,20 @@ public class Transfer {
     }
   }
 
-  private Account.AccountSummary executeOperation(Context ctx, AccountOperation operation) {
+  private void executeOperation(Context ctx, AccountOperation operation) {
     AccountClient.ContextClient account = AccountClient.fromContext(ctx, operation.accountId());
-    return switch (operation.type()) {
+    switch (operation.type()) {
       case DEBIT -> {
         Account.DebitOptions options =
             new Account.DebitOptions(operation.holdId(), operation.metadata());
-        yield account.debit(new Account.DebitInstruction(operation.amount(), options)).await();
+        account.debit(new Account.DebitInstruction(operation.amount(), options)).await();
       }
       case CREDIT -> {
         Account.CreditOptions options =
             new Account.CreditOptions(operation.holdId(), operation.metadata());
-        yield account.credit(new Account.CreditInstruction(operation.amount(), options)).await();
+        account.credit(new Account.CreditInstruction(operation.amount(), options)).await();
       }
-    };
+    }
+    ;
   }
 }

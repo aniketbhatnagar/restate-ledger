@@ -38,14 +38,17 @@ public class AccountTest extends BaseRestateTest {
 
     int amountToCredit = 1000;
     Account.CreditInstruction creditInstruction = creditInstruction(amountToCredit);
-    Account.AccountSummary accountSummary = accountClient.credit(creditInstruction);
+    Account.CreditResult creditResult = accountClient.credit(creditInstruction);
+    Account.AccountSummary accountSummary = creditResult.accountSummary();
     assertSummaryAndCurrentBalances(accountSummary, amountToCredit, 0);
 
     int amountToDebit = 750;
     Account.DebitInstruction debitInstruction = debitInstruction(amountToDebit);
-    accountSummary = accountClient.debit(debitInstruction);
+    Account.DebitResult debitResult = accountClient.debit(debitInstruction);
+    accountSummary = debitResult.accountSummary();
     int expectedBalance = amountToCredit - amountToDebit;
     assertSummaryAndCurrentBalances(accountSummary, expectedBalance, 0);
+    assertThat(debitResult.holdSummary()).isEmpty();
   }
 
   @Test
@@ -54,14 +57,17 @@ public class AccountTest extends BaseRestateTest {
 
     int amountToDebit = 1000;
     Account.DebitInstruction debitInstruction = debitInstruction(amountToDebit);
-    Account.AccountSummary accountSummary = accountClient.debit(debitInstruction);
+    Account.DebitResult debitResult = accountClient.debit(debitInstruction);
+    Account.AccountSummary accountSummary = debitResult.accountSummary();
     assertSummaryAndCurrentBalances(accountSummary, amountToDebit, 0);
 
     int amountToCredit = 750;
     Account.CreditInstruction creditInstruction = creditInstruction(amountToCredit);
-    accountSummary = accountClient.credit(creditInstruction);
+    Account.CreditResult creditResult = accountClient.credit(creditInstruction);
+    accountSummary = creditResult.accountSummary();
     int expectedBalance = amountToDebit - amountToCredit;
     assertSummaryAndCurrentBalances(accountSummary, expectedBalance, 0);
+    assertThat(debitResult.holdSummary()).isEmpty();
   }
 
   @Test
@@ -80,11 +86,11 @@ public class AccountTest extends BaseRestateTest {
     assertSummaryAndCurrentBalances(holdSummary, amountToHold);
 
     int amountToDebit = 525;
-    Account.AccountSummary accountSummary =
+    Account.DebitResult debitResult =
         accountClient.debit(debitInstruction(amountToDebit, holdSummary.holdId()));
     assertSummaryAndCurrentBalances(
-        accountSummary, initialBalance - amountToHold, amountToHold - amountToDebit);
-    assertCurrentHoldBalance(holdSummary.holdId(), amountToHold - amountToDebit);
+        debitResult.accountSummary(), initialBalance - amountToHold, amountToHold - amountToDebit);
+    assertSummaryAndCurrentBalances(debitResult.holdSummary().get(), amountToHold - amountToDebit);
   }
 
   @Test
@@ -112,11 +118,11 @@ public class AccountTest extends BaseRestateTest {
     Account.HoldSummary holdSummary2 = holdResult.holdSummary();
 
     int amountToDebit = 525;
-    Account.AccountSummary accountSummary =
+    Account.DebitResult debitResult =
         accountClient.debit(debitInstruction(amountToDebit, holdSummary1.holdId()));
     assertSummaryAndCurrentBalances(
-        accountSummary, expectedAvailableBalanceAfterHold, totalHold - amountToDebit);
-    assertCurrentHoldBalance(holdSummary1.holdId(), amountToHold1 - amountToDebit);
+        debitResult.accountSummary(), expectedAvailableBalanceAfterHold, totalHold - amountToDebit);
+    assertSummaryAndCurrentBalances(debitResult.holdSummary().get(), amountToHold1 - amountToDebit);
     assertCurrentHoldBalance(holdSummary2.holdId(), amountToHold2);
 
     Account.ReleaseHoldResult releaseHoldResult =

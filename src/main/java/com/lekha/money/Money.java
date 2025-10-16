@@ -1,5 +1,7 @@
 package com.lekha.money;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import dev.restate.sdk.common.TerminalException;
 import java.math.BigInteger;
 
 public record Money(Currency currency, BigInteger amountInMinorUnits) {
@@ -30,14 +32,19 @@ public record Money(Currency currency, BigInteger amountInMinorUnits) {
 
   private void ensureCurrencyMatches(Money other) {
     if (!currency.equals(other.currency)) {
-      throw new IllegalArgumentException(
+      throw new TerminalException(
           "Currency " + currency + " does not match account " + other.currency());
     }
   }
 
   public void ensurePositive() {
     if (amountInMinorUnits.compareTo(BigInteger.ZERO) <= 0) {
-      throw new IllegalArgumentException("Amount must be positive");
+      throw new TerminalException("Amount must be positive");
     }
+  }
+
+  @JsonIgnore
+  public boolean isZero() {
+    return amountInMinorUnits.compareTo(BigInteger.ZERO) == 0;
   }
 }
