@@ -5,11 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.lekha.money.Currency;
 import com.lekha.money.Money;
 import com.lekha.testsetup.BaseRestateTest;
-import com.lekha.testsetup.TransactionMetadataFactory;
 import dev.restate.client.Client;
 import dev.restate.sdk.testing.RestateClient;
 import java.math.BigInteger;
-import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +46,6 @@ public class AccountTest extends BaseRestateTest {
     accountSummary = debitResult.accountSummary();
     int expectedBalance = amountToCredit - amountToDebit;
     assertSummaryAndCurrentBalances(accountSummary, expectedBalance, 0);
-    assertThat(debitResult.holdSummary()).isEmpty();
   }
 
   @Test
@@ -67,7 +64,6 @@ public class AccountTest extends BaseRestateTest {
     accountSummary = creditResult.accountSummary();
     int expectedBalance = amountToDebit - amountToCredit;
     assertSummaryAndCurrentBalances(accountSummary, expectedBalance, 0);
-    assertThat(debitResult.holdSummary()).isEmpty();
   }
 
   @Test
@@ -86,11 +82,14 @@ public class AccountTest extends BaseRestateTest {
     assertSummaryAndCurrentBalances(holdSummary, amountToHold);
 
     int amountToDebit = 525;
-    Account.DebitResult debitResult =
-        accountClient.debit(debitInstruction(amountToDebit, holdSummary.holdId()));
+    Account.DebitFromHoldResult debitFromHoldResult =
+        accountClient.debitFromHold(debitFromHoldInstruction(holdSummary.holdId(), amountToDebit));
     assertSummaryAndCurrentBalances(
-        debitResult.accountSummary(), initialBalance - amountToHold, amountToHold - amountToDebit);
-    assertSummaryAndCurrentBalances(debitResult.holdSummary().get(), amountToHold - amountToDebit);
+        debitFromHoldResult.accountSummary(),
+        initialBalance - amountToHold,
+        amountToHold - amountToDebit);
+    assertSummaryAndCurrentBalances(
+        debitFromHoldResult.holdSummary(), amountToHold - amountToDebit);
   }
 
   @Test
@@ -118,11 +117,14 @@ public class AccountTest extends BaseRestateTest {
     Account.HoldSummary holdSummary2 = holdResult.holdSummary();
 
     int amountToDebit = 525;
-    Account.DebitResult debitResult =
-        accountClient.debit(debitInstruction(amountToDebit, holdSummary1.holdId()));
+    Account.DebitFromHoldResult debitFromHoldResult =
+        accountClient.debitFromHold(debitFromHoldInstruction(holdSummary1.holdId(), amountToDebit));
     assertSummaryAndCurrentBalances(
-        debitResult.accountSummary(), expectedAvailableBalanceAfterHold, totalHold - amountToDebit);
-    assertSummaryAndCurrentBalances(debitResult.holdSummary().get(), amountToHold1 - amountToDebit);
+        debitFromHoldResult.accountSummary(),
+        expectedAvailableBalanceAfterHold,
+        totalHold - amountToDebit);
+    assertSummaryAndCurrentBalances(
+        debitFromHoldResult.holdSummary(), amountToHold1 - amountToDebit);
     assertCurrentHoldBalance(holdSummary2.holdId(), amountToHold2);
 
     Account.ReleaseHoldResult releaseHoldResult =
@@ -163,30 +165,32 @@ public class AccountTest extends BaseRestateTest {
   }
 
   private Account.DebitInstruction debitInstruction(int amountToDebit) {
-    return debitInstruction(amountToDebit, Optional.empty());
-  }
-
-  private Account.DebitInstruction debitInstruction(int amountToDebit, String holdId) {
-    return debitInstruction(amountToDebit, Optional.of(holdId));
-  }
-
-  private Account.DebitInstruction debitInstruction(int amountToDebit, Optional<String> holdId) {
     return new Account.DebitInstruction(
         new Money(TEST_CURRENCY, BigInteger.valueOf(amountToDebit)),
-        new Account.DebitOptions(holdId, TransactionMetadataFactory.transactionMetadata()));
+        OperationMetadataFactory.createOperationMetadata());
   }
 
   private Account.CreditInstruction creditInstruction(int amountToCredit) {
     return new Account.CreditInstruction(
         new Money(TEST_CURRENCY, BigInteger.valueOf(amountToCredit)),
-        new Account.CreditOptions(
-            Optional.empty(), TransactionMetadataFactory.transactionMetadata()));
+        OperationMetadataFactory.createOperationMetadata());
   }
 
   private Account.HoldInstruction holdInstruction(int amountToHold) {
     return new Account.HoldInstruction(
+        UUID.randomUUID().toString(),
         new Money(TEST_CURRENCY, BigInteger.valueOf(amountToHold)),
-        new Account.HoldOptions(TransactionMetadataFactory.transactionMetadata()));
+        OperationMetadataFactory.createOperationMetadata());
+  }
+
+  private Account.ReleaseHoldInstruction releaseHoldInstruction(String holdId) {
+    return new Account.ReleaseHoldInstruction(
+        holdId, OperationMetadataFactory.createOperationMetadata());
+  }
+
+  private Account.DebitFromHoldInstruction debitFromHoldInstruction(
+      String holdId, int amountToDebit) {
+    return new Account.DebitFromHoldInstruction(holdId, debitInstruction(amountToDebit));
   }
 
   private void assertHoldBalance(Account.HoldSummary holdSummary, int balance) {
@@ -202,10 +206,5 @@ public class AccountTest extends BaseRestateTest {
   private void assertSummaryAndCurrentBalances(Account.HoldSummary holdSummary, int balance) {
     assertHoldBalance(holdSummary, balance);
     assertCurrentHoldBalance(holdSummary.holdId(), balance);
-  }
-
-  private Account.ReleaseHoldInstruction releaseHoldInstruction(String holdId) {
-    return new Account.ReleaseHoldInstruction(
-        holdId, new Account.HoldOptions(TransactionMetadataFactory.transactionMetadata()));
   }
 }

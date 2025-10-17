@@ -8,7 +8,6 @@ import com.lekha.money.Currency;
 import com.lekha.money.Money;
 import com.lekha.testsetup.AccountHelper;
 import com.lekha.testsetup.BaseRestateTest;
-import com.lekha.testsetup.TransactionMetadataFactory;
 import dev.restate.client.Client;
 import dev.restate.client.IngressException;
 import dev.restate.sdk.testing.RestateClient;
@@ -65,24 +64,23 @@ public class TransferTest extends BaseRestateTest {
     AccountHelper liabilityAccount3 =
         AccountHelper.newUSDLiabilityAccountHelper(this.ingressClient, liabilityAccountId3);
 
-    TransactionMetadata metadata = TransactionMetadataFactory.transactionMetadata();
     transferClient.bulkMove(
         List.of(
             new Transfer.MoveMoneyInstruction(
                 assetAccountId,
                 liabilityAccountId1,
                 new Money(Currency.USD, BigInteger.valueOf(1000L)),
-                moveMoneyInstructionOptions(metadata)),
+                moveMoneyInstructionOptions()),
             new Transfer.MoveMoneyInstruction(
                 liabilityAccountId1,
                 liabilityAccountId2,
                 new Money(Currency.USD, BigInteger.valueOf(750L)),
-                moveMoneyInstructionOptions(metadata)),
+                moveMoneyInstructionOptions()),
             new Transfer.MoveMoneyInstruction(
                 liabilityAccountId2,
                 liabilityAccountId3,
                 new Money(Currency.USD, BigInteger.valueOf(50L)),
-                moveMoneyInstructionOptions(metadata))));
+                moveMoneyInstructionOptions())));
 
     assetAccount.assertAvailableBalance(1000);
     liabilityAccount1.assertAvailableBalance(250);
@@ -104,7 +102,6 @@ public class TransferTest extends BaseRestateTest {
         AccountHelper.newUSDLiabilityAccountHelper(this.ingressClient, liabilityAccountId2);
     AccountHelper liabilityAccount3 =
         AccountHelper.newUSDLiabilityAccountHelper(this.ingressClient, liabilityAccountId3);
-    TransactionMetadata metadata = TransactionMetadataFactory.transactionMetadata();
 
     assertThatExceptionOfType(IngressException.class)
         .isThrownBy(
@@ -115,18 +112,18 @@ public class TransferTest extends BaseRestateTest {
                           assetAccountId,
                           liabilityAccountId1,
                           new Money(Currency.USD, BigInteger.valueOf(1000L)),
-                          moveMoneyInstructionOptions(metadata)),
+                          moveMoneyInstructionOptions()),
                       new Transfer.MoveMoneyInstruction(
                           liabilityAccountId1,
                           liabilityAccountId2,
                           new Money(Currency.USD, BigInteger.valueOf(750L)),
-                          moveMoneyInstructionOptions(metadata)),
+                          moveMoneyInstructionOptions()),
                       // Should fail
                       new Transfer.MoveMoneyInstruction(
                           liabilityAccountId2,
                           liabilityAccountId3,
                           new Money(Currency.USD, BigInteger.valueOf(800L)),
-                          moveMoneyInstructionOptions(metadata))));
+                          moveMoneyInstructionOptions())));
             })
         .matches(e -> e.getStatusCode() == 500);
 
@@ -187,22 +184,15 @@ public class TransferTest extends BaseRestateTest {
   }
 
   private Transfer.MoveMoneyInstructionOptions moveMoneyInstructionOptions(String holdId) {
-    return moveMoneyInstructionOptions(
-        Optional.of(holdId), TransactionMetadataFactory.transactionMetadata());
+    return moveMoneyInstructionOptions(Optional.of(holdId));
   }
 
   private Transfer.MoveMoneyInstructionOptions moveMoneyInstructionOptions() {
-    return moveMoneyInstructionOptions(
-        Optional.empty(), TransactionMetadataFactory.transactionMetadata());
+    return moveMoneyInstructionOptions(Optional.empty());
   }
 
   private Transfer.MoveMoneyInstructionOptions moveMoneyInstructionOptions(
-      TransactionMetadata metadata) {
-    return moveMoneyInstructionOptions(Optional.empty(), metadata);
-  }
-
-  private Transfer.MoveMoneyInstructionOptions moveMoneyInstructionOptions(
-      Optional<String> holdId, TransactionMetadata metadata) {
-    return new Transfer.MoveMoneyInstructionOptions(holdId, metadata);
+      Optional<String> holdId) {
+    return new Transfer.MoveMoneyInstructionOptions(holdId);
   }
 }

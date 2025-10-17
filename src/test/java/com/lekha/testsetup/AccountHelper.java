@@ -5,10 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.lekha.accounts.Account;
 import com.lekha.accounts.AccountClient;
 import com.lekha.accounts.AccountType;
+import com.lekha.accounts.OperationMetadataFactory;
 import com.lekha.money.Currency;
 import com.lekha.money.Money;
 import dev.restate.client.Client;
 import java.math.BigInteger;
+import java.util.UUID;
 
 public class AccountHelper {
 
@@ -49,14 +51,15 @@ public class AccountHelper {
   public Account.HoldResult hold(int holdAmount) {
     return accountClient.hold(
         new Account.HoldInstruction(
+            UUID.randomUUID().toString(),
             new Money(this.currency, BigInteger.valueOf(holdAmount)),
-            new Account.HoldOptions(TransactionMetadataFactory.transactionMetadata())));
+            OperationMetadataFactory.createOperationMetadata()));
   }
 
   public Account.ReleaseHoldResult releaseHold(String holdId) {
     return accountClient.releaseHold(
         new Account.ReleaseHoldInstruction(
-            holdId, new Account.HoldOptions(TransactionMetadataFactory.transactionMetadata())));
+            holdId, OperationMetadataFactory.createOperationMetadata()));
   }
 
   public void assertHoldBalance(int balance) {

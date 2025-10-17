@@ -36,10 +36,14 @@ public class HoldBalanceState implements AutoCloseable {
   }
 
   public static HoldBalanceState create(ObjectContext ctx, String holdId, Currency currency) {
-    if (ctx.get(holdStateKey(holdId)).isPresent()) {
+    if (exits(ctx, holdId)) {
       throw new TerminalException("hold state already present");
     }
     return new HoldBalanceState(ctx, holdId, State.empty(currency), true);
+  }
+
+  public static boolean exits(ObjectContext ctx, String holdId) {
+    return ctx.get(holdStateKey(holdId)).isPresent();
   }
 
   public static HoldBalanceState getExisting(SharedObjectContext ctx, String holdId) {

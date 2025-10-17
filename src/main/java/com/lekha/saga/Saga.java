@@ -16,12 +16,17 @@ public class Saga {
     T supply() throws TerminalException;
   }
 
+  @FunctionalInterface
+  public interface WorkflowFunction<T> {
+    void apply(T input) throws TerminalException;
+  }
+
   private final List<WorkflowRunnable> compensations = new ArrayList<>();
 
-  public <T> T run(WorkflowSupplier<T> task, WorkflowRunnable compensation) {
+  public <T> T run(WorkflowSupplier<T> task, WorkflowFunction<T> compensation) {
     try {
       T result = task.supply();
-      this.compensations.add(compensation);
+      this.compensations.add(() -> compensation.apply(result));
       return result;
     } catch (TerminalException e) {
       this.compensate();

@@ -1,11 +1,8 @@
 package com.lekha.accounts;
 
-import com.lekha.clock.Clock;
 import com.lekha.ledger.Ledger;
-import com.lekha.ledger.LedgerClient;
 import com.lekha.money.Currency;
 import com.lekha.money.Money;
-import com.lekha.transactions.TransactionMetadata;
 import dev.restate.sdk.ObjectContext;
 import dev.restate.sdk.SharedObjectContext;
 import dev.restate.sdk.annotation.Handler;
@@ -21,30 +18,25 @@ public class Account {
 
   public record InitInstruction(AccountOptions accountOptions) {}
 
-  public record DebitOptions(Optional<String> holdId, TransactionMetadata transactionMetadata) {}
+  public record OperationMetadata(Optional<String> transactionId) {}
 
-  public record DebitInstruction(Money amountToDebit, DebitOptions options) {}
+  public record DebitInstruction(Money amountToDebit, OperationMetadata metadata) {}
 
-  public record DebitResult(AccountSummary accountSummary, Optional<HoldSummary> holdSummary) {}
+  public record DebitResult(AccountSummary accountSummary) {}
 
-  public record CreditOptions(Optional<String> holdId, TransactionMetadata transactionMetadata) {}
-
-  public record CreditInstruction(Money amountToCredit, CreditOptions options) {}
+  public record CreditInstruction(Money amountToCredit, OperationMetadata metadata) {}
 
   public record CreditResult(AccountSummary accountSummary) {}
 
-  public record HoldOptions(TransactionMetadata transactionMetadata) {}
+  public record HoldInstruction(String holdId, Money amountToHold, OperationMetadata metadata) {}
 
-  public record HoldInstruction(Money amountToHold, HoldOptions options) {}
+  public record ReleaseHoldInstruction(String holdId, OperationMetadata metadata) {}
 
-  public record ReleaseHoldInstruction(String holdId, HoldOptions options) {}
+  public record DebitFromHoldInstruction(String holdId, DebitInstruction debitInstruction) {}
 
-  public record AccountBalances(Money availableBalance, Money holdBalance) {
-    public static AccountBalances empty(Currency currency) {
-      Money zeroBalance = Money.zero(currency);
-      return new AccountBalances(zeroBalance, zeroBalance);
-    }
-  }
+  public record DebitFromHoldResult(AccountSummary accountSummary, HoldSummary holdSummary) {}
+
+  public record AccountBalances(Money availableBalance, Money holdBalance) {}
 
   public record AccountSummary(String accountId, AccountBalances balances) {}
 
@@ -74,42 +66,30 @@ public class Account {
       Money amountToDebit = instruction.amountToDebit();
       String accountId = ctx.key();
       AccountOptions accountOptions = AccountOptionsState.getExisting(ctx).accountOptions();
-      Optional<HoldSummary> holdSummary = Optional.empty();
 
       if (accountOptions.accountType().doDebitsDecreaseBalance()) {
-        Optional<String> holdIdOpt = instruction.options().holdId();
-        if (holdIdOpt.isPresent()) {
-          String holdId = holdIdOpt.get();
-          try (HoldBalanceState holdBalanceState = HoldBalanceState.getExisting(ctx, holdId)) {
-            holdBalanceState.subtractAvailableBalance(amountToDebit);
-            holdSummary = Optional.of(new HoldSummary(holdId, holdBalanceState.availableBalance()));
-
-            accountBalancesState.subtractHoldBalance(amountToDebit);
-          }
-        } else {
-          accountBalancesState.subtractAvailableBalance(amountToDebit);
-        }
+        accountBalancesState.subtractAvailableBalance(amountToDebit);
       } else {
         accountBalancesState.addAvailableBalance(amountToDebit);
       }
 
       AccountSummary accountSummary =
           new AccountSummary(accountId, accountBalancesState.balances());
-      recordBalanceChangeInLedger(
-          ctx,
-          Ledger.Operation.DEBIT,
-          amountToDebit,
-          accountSummary,
-          holdSummary,
-          instruction.options().transactionMetadata);
 
-      return new DebitResult(accountSummary, holdSummary);
+      LedgerRecorder ledgerRecorder = new LedgerRecorder(ctx, accountId);
+      ledgerRecorder.recordBalanceChangeInLedger(
+          "account_debit",
+          amountToDebit,
+          Ledger.Operation.DEBIT,
+          accountSummary,
+          instruction.metadata());
+
+      return new DebitResult(accountSummary);
     }
   }
 
   @Handler
   public CreditResult credit(ObjectContext ctx, CreditInstruction instruction) {
-    // TODO: Support crediting to hold (needed in case of reversal)
     try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
       Money amountToCredit = instruction.amountToCredit();
       String accountId = ctx.key();
@@ -123,13 +103,14 @@ public class Account {
 
       AccountSummary accountSummary =
           new AccountSummary(accountId, accountBalancesState.balances());
-      recordBalanceChangeInLedger(
-          ctx,
-          Ledger.Operation.CREDIT,
+
+      LedgerRecorder ledgerRecorder = new LedgerRecorder(ctx, accountId);
+      ledgerRecorder.recordBalanceChangeInLedger(
+          "account_credit",
           amountToCredit,
+          Ledger.Operation.CREDIT,
           accountSummary,
-          Optional.empty(), // TODO: Credit to hold not supported.
-          instruction.options().transactionMetadata());
+          instruction.metadata());
 
       return new CreditResult(accountSummary);
     }
@@ -157,7 +138,7 @@ public class Account {
 
       accountBalancesState.hold(amountToHold);
 
-      String holdId = ctx.random().nextUUID().toString();
+      String holdId = instruction.holdId();
       try (HoldBalanceState holdBalanceState =
           HoldBalanceState.create(ctx, holdId, amountToHold.currency())) {
         holdBalanceState.addAvailableBalance(amountToHold);
@@ -166,12 +147,20 @@ public class Account {
             new AccountSummary(accountId, accountBalancesState.balances());
         HoldSummary holdSummary = new HoldSummary(holdId, holdBalanceState.availableBalance());
 
-        recordBalanceHoldInLedger(
-            ctx,
+        LedgerRecorder ledgerRecorder = new LedgerRecorder(ctx, accountId);
+        ledgerRecorder.recordBalanceChangeInLedger(
+            "account_debit",
             amountToHold,
+            Ledger.Operation.DEBIT,
+            accountSummary,
+            instruction.metadata());
+        ledgerRecorder.recordHoldBalanceChangeInLedger(
+            "hold_credit",
+            amountToHold,
+            Ledger.Operation.CREDIT,
             accountSummary,
             holdSummary,
-            instruction.options().transactionMetadata());
+            instruction.metadata());
 
         return new HoldResult(accountSummary, holdSummary);
       }
@@ -182,8 +171,19 @@ public class Account {
   public ReleaseHoldResult releaseHold(ObjectContext ctx, ReleaseHoldInstruction instruction) {
     try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
       String accountId = ctx.key();
-      try (HoldBalanceState holdBalanceState =
-          HoldBalanceState.getExisting(ctx, instruction.holdId)) {
+      String holdId = instruction.holdId();
+
+      if (!HoldBalanceState.exits(ctx, holdId)) {
+        // nothing to release.
+        AccountSummary accountSummary =
+            new AccountSummary(accountId, accountBalancesState.balances());
+        Currency currency = accountBalancesState.balances().holdBalance().currency();
+        Money amountReleased = Money.zero(currency);
+        HoldSummary holdSummary = new HoldSummary(holdId, amountReleased);
+        return new ReleaseHoldResult(accountSummary, holdSummary, amountReleased);
+      }
+
+      try (HoldBalanceState holdBalanceState = HoldBalanceState.getExisting(ctx, holdId)) {
         Money amountToRelease = holdBalanceState.availableBalance();
         amountToRelease.ensurePositive();
         holdBalanceState.subtractAvailableBalance(amountToRelease);
@@ -195,12 +195,20 @@ public class Account {
         HoldSummary holdSummary =
             new HoldSummary(accountId, Money.zero(amountToRelease.currency()));
 
-        recordBalanceReleaseHoldInLedger(
-            ctx,
+        LedgerRecorder ledgerRecorder = new LedgerRecorder(ctx, accountId);
+        ledgerRecorder.recordBalanceChangeInLedger(
+            "account_credit",
             amountToRelease,
+            Ledger.Operation.CREDIT,
+            accountSummary,
+            instruction.metadata());
+        ledgerRecorder.recordHoldBalanceChangeInLedger(
+            "hold_debit",
+            amountToRelease,
+            Ledger.Operation.DEBIT,
             accountSummary,
             holdSummary,
-            instruction.options().transactionMetadata());
+            instruction.metadata());
 
         return new ReleaseHoldResult(accountSummary, holdSummary, amountToRelease);
       }
@@ -215,72 +223,31 @@ public class Account {
     }
   }
 
-  private void recordBalanceChangeInLedger(
-      ObjectContext ctx,
-      Ledger.Operation operation,
-      Money amount,
-      AccountSummary accountSummary,
-      Optional<HoldSummary> holdSummary,
-      TransactionMetadata transactionMetadata) {
-    Ledger.RecordBalanceChangeInstruction instruction =
-        new Ledger.RecordBalanceChangeInstruction(
-            ledgerIdem(ctx),
-            ledgerTimestampMs(),
-            operation,
-            amount,
+  @Handler
+  public DebitFromHoldResult debitFromHold(
+      ObjectContext ctx, DebitFromHoldInstruction instruction) {
+    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+      String accountId = ctx.key();
+      Money amountToDebit = instruction.debitInstruction().amountToDebit();
+      String holdId = instruction.holdId();
+      try (HoldBalanceState holdBalanceState = HoldBalanceState.getExisting(ctx, holdId)) {
+        holdBalanceState.subtractAvailableBalance(amountToDebit);
+        accountBalancesState.subtractHoldBalance(amountToDebit);
+
+        AccountSummary accountSummary =
+            new AccountSummary(accountId, accountBalancesState.balances());
+        HoldSummary holdSummary = new HoldSummary(holdId, holdBalanceState.availableBalance());
+
+        LedgerRecorder ledgerRecorder = new LedgerRecorder(ctx, accountId);
+        ledgerRecorder.recordHoldBalanceChangeInLedger(
+            "hold_debit",
+            amountToDebit,
+            Ledger.Operation.DEBIT,
             accountSummary,
             holdSummary,
-            transactionMetadata);
-    LedgerClient.ContextClient ledgerClient = LedgerClient.fromContext(ctx, ctx.key());
-    // Ledger entries can be posted async
-    ledgerClient.recordBalanceChange(instruction);
-  }
-
-  private void recordBalanceHoldInLedger(
-      ObjectContext ctx,
-      Money amount,
-      AccountSummary accountSummary,
-      Account.HoldSummary holdSummary,
-      TransactionMetadata transactionMetadata) {
-    Ledger.RecordBalanceHoldInstruction instruction =
-        new Ledger.RecordBalanceHoldInstruction(
-            ledgerIdem(ctx),
-            ledgerTimestampMs(),
-            amount,
-            accountSummary,
-            holdSummary,
-            transactionMetadata);
-    LedgerClient.ContextClient ledgerClient = LedgerClient.fromContext(ctx, ctx.key());
-    // Ledger entries can be posted async
-    ledgerClient.recordBalanceHold(instruction);
-  }
-
-  private void recordBalanceReleaseHoldInLedger(
-      ObjectContext ctx,
-      Money amount,
-      AccountSummary accountSummary,
-      Account.HoldSummary holdSummary,
-      TransactionMetadata transactionMetadata) {
-    Ledger.RecordBalanceHoldReleaseInstruction instruction =
-        new Ledger.RecordBalanceHoldReleaseInstruction(
-            ledgerIdem(ctx),
-            ledgerTimestampMs(),
-            amount,
-            accountSummary,
-            holdSummary,
-            transactionMetadata);
-    LedgerClient.ContextClient ledgerClient = LedgerClient.fromContext(ctx, ctx.key());
-    // Ledger entries can be posted async
-    ledgerClient.recordBalanceHoldRelease(instruction);
-  }
-
-  private static String ledgerIdem(ObjectContext ctx) {
-    return ctx.request().invocationId().toString();
-  }
-
-  private static long ledgerTimestampMs() {
-    // Note: Clock.currentTimeMillis() will generate a new timestamp on a retry and that's ok
-    // because state updates only apply on successful handler execution.
-    return Clock.currentTimeMillis();
+            instruction.debitInstruction().metadata());
+        return new DebitFromHoldResult(accountSummary, holdSummary);
+      }
+    }
   }
 }

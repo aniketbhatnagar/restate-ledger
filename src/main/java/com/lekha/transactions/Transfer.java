@@ -15,90 +15,94 @@ public class Transfer {
 
   public record MoveMoneyInstructionOptions(
       // If the money movement needs to use an existing hold on source account balance.
-      Optional<String> sourceAccountHoldId, TransactionMetadata metadata) {}
+      Optional<String> sourceAccountHoldId) {}
 
   public record MoveMoneyInstruction(
       String sourceAccountId,
       String destinationAccountId,
       Money amount,
-      MoveMoneyInstructionOptions options) {
-    public List<AccountOperation> toAccountOperations() {
-      return List.of(
-          new AccountOperation(
-              sourceAccountId,
-              AccountOperation.Type.DEBIT,
-              amount,
-              options.sourceAccountHoldId(),
-              options.metadata()),
-          new AccountOperation(
-              destinationAccountId,
-              AccountOperation.Type.CREDIT,
-              amount,
-              Optional.empty(),
-              options.metadata()));
-    }
-  }
+      MoveMoneyInstructionOptions options) {}
 
-  public record AccountOperation(
-      String accountId,
-      Type type,
-      Money amount,
-      Optional<String> holdId,
-      TransactionMetadata metadata) {
-    public enum Type {
-      DEBIT,
-      CREDIT;
-
-      public Type reverse() {
-        return switch (this) {
-          case DEBIT -> Type.CREDIT;
-          case CREDIT -> Type.DEBIT;
-        };
-      }
-    }
-
-    public AccountOperation reversed() {
-      return new AccountOperation(accountId, type.reverse(), amount, holdId, metadata);
-    }
+  @Handler
+  public void move(Context ctx, MoveMoneyInstruction instruction) {
+    Planner planner = new Planner.NonTransactionalPlanner();
+    List<AccountOperation<?, ?>> operations = planner.plan(List.of(instruction));
+    executeOperations(ctx, operations);
   }
 
   @Handler
   public void bulkMove(Context ctx, List<MoveMoneyInstruction> instructions) {
-    List<AccountOperation> accountOperations =
-        instructions.stream()
-            .flatMap(instruction -> instruction.toAccountOperations().stream())
-            .toList();
-    executeOperations(ctx, accountOperations);
+    Planner planner = new Planner.NonTransactionalPlanner();
+    List<AccountOperation<?, ?>> operations = planner.plan(instructions);
+    executeOperations(ctx, operations);
   }
 
-  @Handler
-  public void move(Context ctx, MoveMoneyInstruction instruction) {
-    executeOperations(ctx, instruction.toAccountOperations());
-  }
-
-  private void executeOperations(Context ctx, List<AccountOperation> operations) {
+  private void executeOperations(Context ctx, List<AccountOperation<?, ?>> operations) {
     Saga saga = new Saga();
-    for (AccountOperation operation : operations) {
-      saga.run(
-          () -> executeOperation(ctx, operation),
-          () -> executeOperation(ctx, operation.reversed()));
+    for (AccountOperation<?, ?> operation : operations) {
+      executeOperationWithSaga(ctx, saga, operation);
     }
   }
 
-  private void executeOperation(Context ctx, AccountOperation operation) {
-    AccountClient.ContextClient account = AccountClient.fromContext(ctx, operation.accountId());
-    switch (operation.type()) {
-      case DEBIT -> {
-        Account.DebitOptions options =
-            new Account.DebitOptions(operation.holdId(), operation.metadata());
-        account.debit(new Account.DebitInstruction(operation.amount(), options)).await();
+  @SuppressWarnings("unchecked")
+  private <R extends AccountOperationResult, S extends AccountOperationResult>
+      void executeOperationWithSaga(Context ctx, Saga saga, AccountOperation<R, S> operation) {
+    saga.run(
+        () -> executeOperation(ctx, operation),
+        result -> executeOperation(ctx, operation.reversed((R) result)));
+  }
+
+  private AccountOperationResult executeOperation(
+      Context ctx, AccountOperation<?, ?> accountOperation) {
+    AccountClient.ContextClient account =
+        AccountClient.fromContext(ctx, accountOperation.accountId());
+    Account.OperationMetadata metadata = new Account.OperationMetadata(Optional.empty());
+    return switch (accountOperation) {
+      case AccountOperation.DebitOperation operation -> {
+        Account.DebitResult debitResult =
+            account
+                .debit(new Account.DebitInstruction(operation.amountToDebit(), metadata))
+                .await();
+        yield new AccountOperationResult.DebitResult(debitResult.accountSummary());
       }
-      case CREDIT -> {
-        Account.CreditOptions options =
-            new Account.CreditOptions(operation.holdId(), operation.metadata());
-        account.credit(new Account.CreditInstruction(operation.amount(), options)).await();
+      case AccountOperation.CreditOperation operation -> {
+        Account.CreditResult creditResult =
+            account
+                .credit(new Account.CreditInstruction(operation.amountToCredit(), metadata))
+                .await();
+        yield new AccountOperationResult.CreditResult(creditResult.accountSummary());
       }
-    }
-    ;
+      case AccountOperation.HoldOperation operation -> {
+        Account.HoldResult holdResult =
+            account
+                .hold(
+                    new Account.HoldInstruction(
+                        operation.holdId(), operation.amountToHold(), metadata))
+                .await();
+        yield new AccountOperationResult.HoldResult(
+            holdResult.accountSummary(), holdResult.holdSummary());
+      }
+      case AccountOperation.ReleaseHoldOperation operation -> {
+        Account.ReleaseHoldResult releaseHoldResult =
+            account
+                .releaseHold(new Account.ReleaseHoldInstruction(operation.holdId(), metadata))
+                .await();
+        yield new AccountOperationResult.ReleaseHoldHoldResult(
+            releaseHoldResult.accountSummary(),
+            releaseHoldResult.holdSummary(),
+            releaseHoldResult.releasedAmount());
+      }
+      case AccountOperation.DebitFromHoldIdOperation operation -> {
+        Account.DebitFromHoldResult debitFromHoldResult =
+            account
+                .debitFromHold(
+                    new Account.DebitFromHoldInstruction(
+                        operation.holdId(),
+                        new Account.DebitInstruction(operation.amountToDebit(), metadata)))
+                .await();
+        yield new AccountOperationResult.DebitFromHoldResult(
+            debitFromHoldResult.accountSummary(), debitFromHoldResult.holdSummary());
+      }
+    };
   }
 }
