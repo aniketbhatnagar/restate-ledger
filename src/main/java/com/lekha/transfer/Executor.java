@@ -63,7 +63,7 @@ public record Executor(Context ctx) {
             releaseHoldResult.holdSummary(),
             releaseHoldResult.releasedAmount());
       }
-      case AccountOperation.DebitHoldIdOperation operation -> {
+      case AccountOperation.DebitHoldOperation operation -> {
         Account.DebitHoldResult debitHoldResult =
             account
                 .debitHold(
@@ -73,6 +73,17 @@ public record Executor(Context ctx) {
                 .await();
         yield new AccountOperationResult.DebitHoldResult(
             debitHoldResult.accountSummary(), debitHoldResult.holdSummary());
+      }
+      case AccountOperation.CreditHoldOperation operation -> {
+        Account.CreditHoldResult creditHoldResult =
+            account
+                .creditHold(
+                    new Account.CreditHoldInstruction(
+                        operation.holdId(),
+                        new Account.CreditInstruction(operation.amountToCredit(), metadata)))
+                .await();
+        yield new AccountOperationResult.CreditHoldResult(
+            creditHoldResult.accountSummary(), creditHoldResult.holdSummary());
       }
     };
   }

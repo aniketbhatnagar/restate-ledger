@@ -89,7 +89,7 @@ public class TransferTest extends BaseRestateTest {
   }
 
   @Test
-  public void bulkMove_OneMovementFails_resultsInRollback() {
+  public void bulkMove_oneMovementFails_resultsInRollback() {
     String assetAccountId = UUID.randomUUID() + "-asset-1";
     String liabilityAccountId1 = UUID.randomUUID() + "-liability-1";
     String liabilityAccountId2 = UUID.randomUUID() + "-liability-2";
@@ -129,6 +129,55 @@ public class TransferTest extends BaseRestateTest {
 
     assetAccount.assertAvailableBalance(0);
     liabilityAccount1.assertAvailableBalance(0);
+    liabilityAccount2.assertAvailableBalance(0);
+    liabilityAccount3.assertAvailableBalance(0);
+  }
+
+  @Test
+  public void bulkMove_withHold_oneMovementFails_resultsInRollback() {
+    String assetAccountId = UUID.randomUUID() + "-asset-1";
+    String liabilityAccountId1 = UUID.randomUUID() + "-liability-1";
+    String liabilityAccountId2 = UUID.randomUUID() + "-liability-2";
+    String liabilityAccountId3 = UUID.randomUUID() + "-liability-3";
+    AccountHelper assetAccount =
+        AccountHelper.newUSDAssetAccountHelper(this.ingressClient, assetAccountId);
+    AccountHelper liabilityAccount1 =
+        AccountHelper.newUSDLiabilityAccountHelper(this.ingressClient, liabilityAccountId1);
+    AccountHelper liabilityAccount2 =
+        AccountHelper.newUSDLiabilityAccountHelper(this.ingressClient, liabilityAccountId2);
+    AccountHelper liabilityAccount3 =
+        AccountHelper.newUSDLiabilityAccountHelper(this.ingressClient, liabilityAccountId3);
+
+    transferClient.move(
+        new Transfer.MoveMoneyInstruction(
+            assetAccountId,
+            liabilityAccountId1,
+            new Money(Currency.USD, BigInteger.valueOf(1000L)),
+            moveMoneyInstructionOptions()));
+    liabilityAccount1.hold(625);
+
+    assertThatExceptionOfType(IngressException.class)
+        .isThrownBy(
+            () -> {
+              transferClient.bulkMove(
+                  List.of(
+                      new Transfer.MoveMoneyInstruction(
+                          liabilityAccountId1,
+                          liabilityAccountId2,
+                          new Money(Currency.USD, BigInteger.valueOf(750L)),
+                          moveMoneyInstructionOptions()),
+                      // Should fail
+                      new Transfer.MoveMoneyInstruction(
+                          liabilityAccountId2,
+                          liabilityAccountId3,
+                          new Money(Currency.USD, BigInteger.valueOf(800L)),
+                          moveMoneyInstructionOptions())));
+            })
+        .matches(e -> e.getStatusCode() == 500);
+
+    assetAccount.assertAvailableBalance(1000);
+    liabilityAccount1.assertHoldBalance(625);
+    liabilityAccount1.assertAvailableBalance(1000 - 625);
     liabilityAccount2.assertAvailableBalance(0);
     liabilityAccount3.assertAvailableBalance(0);
   }

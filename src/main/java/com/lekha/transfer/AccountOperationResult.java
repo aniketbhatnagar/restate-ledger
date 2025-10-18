@@ -18,4 +18,7 @@ public sealed interface AccountOperationResult {
 
   record DebitHoldResult(Account.AccountSummary accountSummary, Account.HoldSummary holdSummary)
       implements AccountOperationResult {}
+
+  record CreditHoldResult(Account.AccountSummary accountSummary, Account.HoldSummary holdSummary)
+      implements AccountOperationResult {}
 }

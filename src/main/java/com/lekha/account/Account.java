@@ -302,7 +302,7 @@ public class Account {
       String accountId = ctx.key();
       Money amountToCredit = instruction.amountToCredit();
       try (HoldBalanceState transactionHoldState =
-               HoldBalanceState.getExistingOrCreate(ctx, holdId, holdType, amountToCredit.currency())) {
+          HoldBalanceState.getExistingOrCreate(ctx, holdId, holdType, amountToCredit.currency())) {
         accountBalancesState.addHoldBalance(amountToCredit);
         transactionHoldState.addAvailableBalance(amountToCredit);
 

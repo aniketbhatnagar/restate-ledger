@@ -27,7 +27,7 @@ public interface Planner {
     private static AccountOperation<?, ?> getDebitOperation(
         Transfer.MoveMoneyInstruction instruction) {
       if (instruction.options().sourceAccountHoldId().isPresent()) {
-        return new AccountOperation.DebitHoldIdOperation(
+        return new AccountOperation.DebitHoldOperation(
             instruction.sourceAccountId(),
             instruction.options().sourceAccountHoldId().get(),
             instruction.amount());

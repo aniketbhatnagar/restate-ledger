@@ -46,14 +46,22 @@ public sealed interface AccountOperation<
     }
   }
 
-  record DebitHoldIdOperation(String accountId, String holdId, Money amountToDebit)
+  record DebitHoldOperation(String accountId, String holdId, Money amountToDebit)
       implements AccountOperation<
-          AccountOperationResult.DebitHoldResult, AccountOperationResult.CreditResult> {
+          AccountOperationResult.DebitHoldResult, AccountOperationResult.CreditHoldResult> {
     @Override
-    public AccountOperation<
-            AccountOperationResult.CreditResult, AccountOperationResult.DebitHoldResult>
-        reversed(AccountOperationResult.DebitHoldResult result) {
-      throw new UnsupportedOperationException();
+    public CreditHoldOperation reversed(AccountOperationResult.DebitHoldResult result) {
+      return new CreditHoldOperation(accountId, holdId, amountToDebit);
+    }
+  }
+
+  record CreditHoldOperation(String accountId, String holdId, Money amountToCredit)
+      implements AccountOperation<
+          AccountOperationResult.CreditHoldResult, AccountOperationResult.DebitHoldResult> {
+
+    @Override
+    public DebitHoldOperation reversed(AccountOperationResult.CreditHoldResult result) {
+      return new DebitHoldOperation(accountId, holdId, amountToCredit);
     }
   }
 }
