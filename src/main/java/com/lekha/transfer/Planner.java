@@ -1,8 +1,6 @@
 package com.lekha.transfer;
 
-import dev.restate.sdk.Context;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Stream;
 
 public interface Planner {
@@ -20,29 +18,50 @@ public interface Planner {
         Transfer.MoveMoneyInstruction instruction) {
       return Stream.of(
           getDebitOperation(instruction),
-          new AccountOperation.CreditOperation(
-              instruction.destinationAccountId(), instruction.amount()));
-    }
-
-    private static AccountOperation<?, ?> getDebitOperation(
-        Transfer.MoveMoneyInstruction instruction) {
-      if (instruction.options().sourceAccountHoldId().isPresent()) {
-        return new AccountOperation.DebitHoldOperation(
-            instruction.sourceAccountId(),
-            instruction.options().sourceAccountHoldId().get(),
-            instruction.amount());
-      }
-      return new AccountOperation.DebitOperation(
-          instruction.sourceAccountId(), instruction.amount());
+          new AccountOperation.Credit(instruction.destinationAccountId(), instruction.amount()));
     }
   }
 
-  record TransactionalPlanner(Context ctx) implements Planner {
+  private static AccountOperation<?, ?> getDebitOperation(
+      Transfer.MoveMoneyInstruction instruction) {
+    if (containsHold(instruction)) {
+      return new AccountOperation.DebitHold(
+          instruction.sourceAccountId(),
+          instruction.options().sourceAccountHoldId().get(),
+          instruction.amount());
+    }
+    return new AccountOperation.Debit(instruction.sourceAccountId(), instruction.amount());
+  }
+
+  private static boolean containsHold(Transfer.MoveMoneyInstruction instruction) {
+    return instruction.options().sourceAccountHoldId().isPresent();
+  }
+
+  record TransactionalPlanner(String transactionId) implements Planner {
     @Override
     public List<AccountOperation<?, ?>> plan(List<Transfer.MoveMoneyInstruction> instructions) {
-      String transactionId = ctx.request().invocationId().toString();
       List<AccountOperation<?, ?>> operations = new ArrayList<>(instructions.size() * 2);
-      for (Transfer.MoveMoneyInstruction instruction : instructions) {}
+      Set<String> transactionalHoldAccountIds = new LinkedHashSet<>();
+      for (Transfer.MoveMoneyInstruction instruction : instructions) {
+        if (!containsHold(instruction)
+            && transactionalHoldAccountIds.contains(instruction.sourceAccountId())) {
+          operations.add(
+              new AccountOperation.TransactionalDebit(
+                  instruction.sourceAccountId(), transactionId, instruction.amount()));
+        } else {
+          operations.add(getDebitOperation(instruction));
+        }
+        operations.add(
+            new AccountOperation.TransactionalCredit(
+                instruction.destinationAccountId(), transactionId, instruction.amount()));
+        transactionalHoldAccountIds.add(instruction.destinationAccountId());
+      }
+
+      for (String transactionalHoldAccountId : transactionalHoldAccountIds) {
+        operations.add(
+            new AccountOperation.TransactionalReleaseHold(
+                transactionalHoldAccountId, transactionId));
+      }
 
       return operations;
     }

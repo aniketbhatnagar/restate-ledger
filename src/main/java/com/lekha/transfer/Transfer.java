@@ -35,4 +35,12 @@ public class Transfer {
     Executor executor = new Executor(ctx);
     executor.executeOperations(ctx, operations);
   }
+
+  @Handler
+  public void transactionalBulkMove(Context ctx, List<MoveMoneyInstruction> instructions) {
+    Planner planner = new Planner.TransactionalPlanner(ctx.request().invocationId().toString());
+    List<AccountOperation<?, ?>> operations = planner.plan(instructions);
+    Executor executor = new Executor(ctx);
+    executor.executeOperations(ctx, operations);
+  }
 }

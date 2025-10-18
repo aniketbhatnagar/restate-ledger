@@ -79,6 +79,9 @@ public class Account {
   public record TransactionalReleaseHoldResult(
       AccountSummary accountSummary, HoldSummary transactionHoldSummary, Money releasedAmount) {}
 
+  public record TransactionalHoldInstruction(
+      String transactionId, Money amountToHold, OperationMetadata metadata) {}
+
   @Handler
   public AccountSummary init(ObjectContext ctx, InitInstruction instruction) {
     if (!AccountOptionsState.exists(ctx)) {
@@ -156,6 +159,10 @@ public class Account {
 
   @Handler
   public HoldResult hold(ObjectContext ctx, HoldInstruction instruction) {
+    return hold(ctx, HoldType.USER, instruction);
+  }
+
+  private HoldResult hold(ObjectContext ctx, HoldType holdType, HoldInstruction instruction) {
     try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
       Money amountToHold = instruction.amountToHold();
       String accountId = ctx.key();
@@ -168,7 +175,7 @@ public class Account {
 
       String holdId = instruction.holdId();
       try (HoldBalanceState holdBalanceState =
-          HoldBalanceState.create(ctx, holdId, HoldType.USER, amountToHold.currency())) {
+          HoldBalanceState.create(ctx, holdId, holdType, amountToHold.currency())) {
         accountBalancesState.hold(amountToHold);
         holdBalanceState.addAvailableBalance(amountToHold);
 
@@ -325,23 +332,35 @@ public class Account {
   @Handler
   public TransactionalDebitResult transactionalDebit(
       ObjectContext ctx, TransactionalDebitInstruction instruction) {
-    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
-      Money amountToDebit = instruction.debitInstruction().amountToDebit();
-      String transactionHoldId = instruction.transactionId();
-      try (HoldBalanceState transactionHoldState =
-          HoldBalanceState.getExistingOrCreate(
-              ctx, transactionHoldId, HoldType.TRANSACTION, amountToDebit.currency())) {
-        // First debit from transaction hold and then account's available balance.
-        drain(
-            ctx,
-            amountToDebit,
-            List.of(transactionHoldState),
-            accountBalancesState,
-            instruction.debitInstruction().metadata());
+    AccountOptionsState accountOptionsState = AccountOptionsState.getExisting(ctx);
+    if (accountOptionsState.accountOptions().accountType().doDebitsDecreaseBalance()) {
+      try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+        Money amountToDebit = instruction.debitInstruction().amountToDebit();
+        String transactionHoldId = instruction.transactionId();
+        try (HoldBalanceState transactionHoldState =
+                 HoldBalanceState.getExistingOrCreate(
+                     ctx, transactionHoldId, HoldType.TRANSACTION, amountToDebit.currency())) {
+          // First debit from transaction hold and then account's available balance.
+          drain(
+              ctx,
+              amountToDebit,
+              List.of(transactionHoldState),
+              accountBalancesState,
+              instruction.debitInstruction().metadata());
 
-        return new TransactionalDebitResult(
-            accountBalancesState.accountSummary(), transactionHoldState.holdSummary());
+          return new TransactionalDebitResult(
+              accountBalancesState.accountSummary(), transactionHoldState.holdSummary());
+        }
       }
+    } else {
+      // no transaction support for asset accounts
+      DebitResult debitResult = this.debit(ctx, instruction.debitInstruction());
+      HoldSummary emptyHold =
+          new HoldSummary(
+              instruction.transactionId(),
+              HoldType.TRANSACTION,
+              Money.zero(instruction.debitInstruction().amountToDebit().currency()));
+      return new TransactionalDebitResult(debitResult.accountSummary(), emptyHold);
     }
   }
 
@@ -429,13 +448,34 @@ public class Account {
   @Handler
   public TransactionalCreditResult transactionalCredit(
       ObjectContext ctx, TransactionalCreditInstruction instruction) {
-    CreditHoldResult creditHoldResult =
-        creditHold(
-            ctx,
-            HoldType.TRANSACTION,
-            instruction.transactionId(),
-            instruction.creditInstruction());
-    return new TransactionalCreditResult(
-        creditHoldResult.accountSummary(), creditHoldResult.holdSummary());
+    AccountOptionsState accountOptionsState = AccountOptionsState.getExisting(ctx);
+    if (accountOptionsState.accountOptions().accountType().doCreditsDecreaseBalance()) {
+      // no transaction support for asset accounts
+      CreditResult creditResult = this.credit(ctx, instruction.creditInstruction());
+      HoldSummary emptyHold =
+          new HoldSummary(
+              instruction.transactionId(),
+              HoldType.TRANSACTION,
+              Money.zero(instruction.creditInstruction().amountToCredit().currency()));
+      return new TransactionalCreditResult(creditResult.accountSummary(), emptyHold);
+    } else {
+      CreditHoldResult creditHoldResult =
+          creditHold(
+              ctx,
+              HoldType.TRANSACTION,
+              instruction.transactionId(),
+              instruction.creditInstruction());
+      return new TransactionalCreditResult(
+          creditHoldResult.accountSummary(), creditHoldResult.holdSummary());
+    }
+  }
+
+  @Handler
+  public HoldResult transactionalHold(ObjectContext ctx, TransactionalHoldInstruction instruction) {
+    return hold(
+        ctx,
+        HoldType.TRANSACTION,
+        new HoldInstruction(
+            instruction.transactionId(), instruction.amountToHold(), instruction.metadata()));
   }
 }

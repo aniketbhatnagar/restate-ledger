@@ -9,59 +9,96 @@ public sealed interface AccountOperation<
 
   AccountOperation<ReverseR, R> reversed(R result);
 
-  record DebitOperation(String accountId, Money amountToDebit)
-      implements AccountOperation<
-          AccountOperationResult.DebitResult, AccountOperationResult.CreditResult> {
+  record Debit(String accountId, Money amountToDebit)
+      implements AccountOperation<AccountOperationResult.Debit, AccountOperationResult.Credit> {
     @Override
-    public CreditOperation reversed(AccountOperationResult.DebitResult result) {
-      return new CreditOperation(accountId, amountToDebit);
+    public Credit reversed(AccountOperationResult.Debit result) {
+      return new Credit(accountId, amountToDebit);
     }
   }
 
-  record CreditOperation(String accountId, Money amountToCredit)
-      implements AccountOperation<
-          AccountOperationResult.CreditResult, AccountOperationResult.DebitResult> {
+  record Credit(String accountId, Money amountToCredit)
+      implements AccountOperation<AccountOperationResult.Credit, AccountOperationResult.Debit> {
 
     @Override
-    public DebitOperation reversed(AccountOperationResult.CreditResult result) {
-      return new DebitOperation(accountId, amountToCredit);
+    public Debit reversed(AccountOperationResult.Credit result) {
+      return new Debit(accountId, amountToCredit);
     }
   }
 
-  record HoldOperation(String accountId, String holdId, Money amountToHold)
-      implements AccountOperation<
-          AccountOperationResult.HoldResult, AccountOperationResult.ReleaseHoldHoldResult> {
+  record Hold(String accountId, String holdId, Money amountToHold)
+      implements AccountOperation<AccountOperationResult.Hold, AccountOperationResult.ReleaseHold> {
     @Override
-    public ReleaseHoldOperation reversed(AccountOperationResult.HoldResult result) {
-      return new ReleaseHoldOperation(accountId, holdId);
+    public ReleaseHold reversed(AccountOperationResult.Hold result) {
+      return new ReleaseHold(accountId, holdId);
     }
   }
 
-  record ReleaseHoldOperation(String accountId, String holdId)
-      implements AccountOperation<
-          AccountOperationResult.ReleaseHoldHoldResult, AccountOperationResult.HoldResult> {
+  record ReleaseHold(String accountId, String holdId)
+      implements AccountOperation<AccountOperationResult.ReleaseHold, AccountOperationResult.Hold> {
     @Override
-    public HoldOperation reversed(AccountOperationResult.ReleaseHoldHoldResult result) {
-      return new HoldOperation(accountId, holdId, result.releasedAmount());
+    public Hold reversed(AccountOperationResult.ReleaseHold result) {
+      return new Hold(accountId, holdId, result.releasedAmount());
     }
   }
 
-  record DebitHoldOperation(String accountId, String holdId, Money amountToDebit)
+  record DebitHold(String accountId, String holdId, Money amountToDebit)
       implements AccountOperation<
-          AccountOperationResult.DebitHoldResult, AccountOperationResult.CreditHoldResult> {
+          AccountOperationResult.DebitHold, AccountOperationResult.CreditHold> {
     @Override
-    public CreditHoldOperation reversed(AccountOperationResult.DebitHoldResult result) {
-      return new CreditHoldOperation(accountId, holdId, amountToDebit);
+    public CreditHold reversed(AccountOperationResult.DebitHold result) {
+      return new CreditHold(accountId, holdId, amountToDebit);
     }
   }
 
-  record CreditHoldOperation(String accountId, String holdId, Money amountToCredit)
+  record CreditHold(String accountId, String holdId, Money amountToCredit)
       implements AccountOperation<
-          AccountOperationResult.CreditHoldResult, AccountOperationResult.DebitHoldResult> {
+          AccountOperationResult.CreditHold, AccountOperationResult.DebitHold> {
 
     @Override
-    public DebitHoldOperation reversed(AccountOperationResult.CreditHoldResult result) {
-      return new DebitHoldOperation(accountId, holdId, amountToCredit);
+    public DebitHold reversed(AccountOperationResult.CreditHold result) {
+      return new DebitHold(accountId, holdId, amountToCredit);
+    }
+  }
+
+  record TransactionalDebit(String accountId, String transactionId, Money amountToDebit)
+      implements AccountOperation<
+          AccountOperationResult.TransactionalDebit, AccountOperationResult.TransactionalCredit> {
+
+    @Override
+    public TransactionalCredit reversed(AccountOperationResult.TransactionalDebit result) {
+      return new TransactionalCredit(accountId, transactionId, amountToDebit);
+    }
+  }
+
+  record TransactionalCredit(String accountId, String transactionId, Money amountToCredit)
+      implements AccountOperation<
+          AccountOperationResult.TransactionalCredit, AccountOperationResult.TransactionalDebit> {
+
+    @Override
+    public TransactionalDebit reversed(AccountOperationResult.TransactionalCredit result) {
+      return new TransactionalDebit(accountId, transactionId, amountToCredit);
+    }
+  }
+
+  record TransactionalReleaseHold(String accountId, String transactionId)
+      implements AccountOperation<
+          AccountOperationResult.TransactionalReleaseHold,
+          AccountOperationResult.TransactionalHold> {
+
+    @Override
+    public TransactionalHold reversed(AccountOperationResult.TransactionalReleaseHold result) {
+      return new TransactionalHold(accountId, transactionId, result.releasedAmount());
+    }
+  }
+
+  record TransactionalHold(String accountId, String transactionId, Money amountToHold)
+      implements AccountOperation<
+          AccountOperationResult.TransactionalHold,
+          AccountOperationResult.TransactionalReleaseHold> {
+    @Override
+    public TransactionalReleaseHold reversed(AccountOperationResult.TransactionalHold result) {
+      return new TransactionalReleaseHold(accountId, transactionId);
     }
   }
 }
