@@ -1,9 +1,9 @@
-package com.lekha.transactions;
+package com.lekha.transfer;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatExceptionOfType;
 
-import com.lekha.accounts.Account;
+import com.lekha.account.Account;
 import com.lekha.money.Currency;
 import com.lekha.money.Money;
 import com.lekha.testsetup.AccountHelper;

@@ -1,6 +1,6 @@
-package com.lekha.transactions;
+package com.lekha.transfer;
 
-import com.lekha.accounts.Account;
+import com.lekha.account.Account;
 import com.lekha.money.Money;
 
 public sealed interface AccountOperationResult {
@@ -16,6 +16,6 @@ public sealed interface AccountOperationResult {
       Account.AccountSummary accountSummary, Account.HoldSummary holdSummary, Money releasedAmount)
       implements AccountOperationResult {}
 
-  record DebitFromHoldResult(Account.AccountSummary accountSummary, Account.HoldSummary holdSummary)
+  record DebitHoldResult(Account.AccountSummary accountSummary, Account.HoldSummary holdSummary)
       implements AccountOperationResult {}
 }

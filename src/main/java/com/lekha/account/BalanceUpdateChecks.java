@@ -1,4 +1,4 @@
-package com.lekha.accounts;
+package com.lekha.account;
 
 import com.lekha.money.Money;
 import dev.restate.sdk.common.TerminalException;

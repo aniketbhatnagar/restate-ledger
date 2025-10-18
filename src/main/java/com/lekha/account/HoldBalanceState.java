@@ -1,4 +1,4 @@
-package com.lekha.accounts;
+package com.lekha.account;
 
 import com.lekha.money.Currency;
 import com.lekha.money.Money;
@@ -12,9 +12,11 @@ import java.util.function.Supplier;
 
 public class HoldBalanceState implements AutoCloseable {
 
-  public record State(Money availableBalance) {
-    public static State empty(Currency currency) {
-      return new State(Money.zero(currency));
+  public record HoldDetails(String holdId, Account.HoldType holdType) {}
+
+  public record State(HoldDetails holdDetails, Money availableBalance) {
+    public static State empty(HoldDetails holdDetails, Currency currency) {
+      return new State(holdDetails, Money.zero(currency));
     }
   }
 
@@ -26,20 +28,21 @@ public class HoldBalanceState implements AutoCloseable {
   private State state;
   private boolean flushNeeded = false;
 
-  private HoldBalanceState(
-      SharedObjectContext ctx, String holdId, State state, boolean flushNeeded) {
+  private HoldBalanceState(SharedObjectContext ctx, String holdId, State state) {
     this.ctx = ctx;
     this.holdId = holdId;
     this.holdStateKey = holdStateKey(holdId);
     this.state = state;
-    this.flushNeeded = flushNeeded;
+    this.flushNeeded = false;
   }
 
-  public static HoldBalanceState create(ObjectContext ctx, String holdId, Currency currency) {
+  public static HoldBalanceState create(
+      ObjectContext ctx, String holdId, Account.HoldType holdType, Currency currency) {
     if (exits(ctx, holdId)) {
       throw new TerminalException("hold state already present");
     }
-    return new HoldBalanceState(ctx, holdId, State.empty(currency), true);
+    return new HoldBalanceState(
+        ctx, holdId, State.empty(new HoldDetails(holdId, holdType), currency));
   }
 
   public static boolean exits(ObjectContext ctx, String holdId) {
@@ -48,12 +51,20 @@ public class HoldBalanceState implements AutoCloseable {
 
   public static HoldBalanceState getExisting(SharedObjectContext ctx, String holdId) {
     State state = getStateOrThrow(ctx, holdId);
-    return new HoldBalanceState(ctx, holdId, state, false);
+    return new HoldBalanceState(ctx, holdId, state);
+  }
+
+  public static HoldBalanceState getExistingOrCreate(
+      ObjectContext ctx, String holdId, Account.HoldType holdType, Currency currency) {
+    if (exits(ctx, holdId)) {
+      return getExisting(ctx, holdId);
+    }
+    return create(ctx, holdId, holdType, currency);
   }
 
   @Override
   public void close() {
-    flushState();
+    flush();
   }
 
   public void addAvailableBalance(Money amountToAdd) {
@@ -73,12 +84,16 @@ public class HoldBalanceState implements AutoCloseable {
     return this.state.availableBalance();
   }
 
+  public String holdId() {
+    return holdId;
+  }
+
   private void updateAvailableBalance(Function<Money, Money> mapper) {
     updateState(
         state -> {
           Money availableBalance = state.availableBalance();
           Money newAvailableBalance = mapper.apply(availableBalance);
-          return new State(newAvailableBalance);
+          return new State(state.holdDetails(), newAvailableBalance);
         });
   }
 
@@ -87,7 +102,7 @@ public class HoldBalanceState implements AutoCloseable {
     this.flushNeeded = true;
   }
 
-  public void flushState() {
+  public void flush() {
     if (flushNeeded) {
       if (!(ctx instanceof ObjectContext)) {
         throw new TerminalException("Cannot flush state in shared context");
@@ -99,6 +114,18 @@ public class HoldBalanceState implements AutoCloseable {
         ((ObjectContext) ctx).set(holdStateKey, state);
       }
       flushNeeded = false;
+    }
+  }
+
+  public Account.HoldSummary holdSummary() {
+    return new Account.HoldSummary(
+        holdId, state.holdDetails().holdType(), state.availableBalance());
+  }
+
+  public void ensureHoldType(Account.HoldType holdType) {
+    if (!state.holdDetails().holdType().equals(holdType)) {
+      throw new TerminalException(
+          "Hold type mismatch: expected " + holdType + ", got " + state.holdDetails().holdType());
     }
   }
 

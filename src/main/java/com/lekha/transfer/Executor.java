@@ -1,43 +1,14 @@
-package com.lekha.transactions;
+package com.lekha.transfer;
 
-import com.lekha.accounts.Account;
-import com.lekha.accounts.AccountClient;
-import com.lekha.money.Money;
+import com.lekha.account.Account;
+import com.lekha.account.AccountClient;
 import com.lekha.saga.Saga;
 import dev.restate.sdk.Context;
-import dev.restate.sdk.annotation.Handler;
-import dev.restate.sdk.annotation.Service;
 import java.util.List;
-import java.util.Optional;
 
-@Service
-public class Transfer {
+public record Executor(Context ctx) {
 
-  public record MoveMoneyInstructionOptions(
-      // If the money movement needs to use an existing hold on source account balance.
-      Optional<String> sourceAccountHoldId) {}
-
-  public record MoveMoneyInstruction(
-      String sourceAccountId,
-      String destinationAccountId,
-      Money amount,
-      MoveMoneyInstructionOptions options) {}
-
-  @Handler
-  public void move(Context ctx, MoveMoneyInstruction instruction) {
-    Planner planner = new Planner.NonTransactionalPlanner();
-    List<AccountOperation<?, ?>> operations = planner.plan(List.of(instruction));
-    executeOperations(ctx, operations);
-  }
-
-  @Handler
-  public void bulkMove(Context ctx, List<MoveMoneyInstruction> instructions) {
-    Planner planner = new Planner.NonTransactionalPlanner();
-    List<AccountOperation<?, ?>> operations = planner.plan(instructions);
-    executeOperations(ctx, operations);
-  }
-
-  private void executeOperations(Context ctx, List<AccountOperation<?, ?>> operations) {
+  public void executeOperations(Context ctx, List<AccountOperation<?, ?>> operations) {
     Saga saga = new Saga();
     for (AccountOperation<?, ?> operation : operations) {
       executeOperationWithSaga(ctx, saga, operation);
@@ -56,7 +27,7 @@ public class Transfer {
       Context ctx, AccountOperation<?, ?> accountOperation) {
     AccountClient.ContextClient account =
         AccountClient.fromContext(ctx, accountOperation.accountId());
-    Account.OperationMetadata metadata = new Account.OperationMetadata(Optional.empty());
+    Account.OperationMetadata metadata = new Account.OperationMetadata();
     return switch (accountOperation) {
       case AccountOperation.DebitOperation operation -> {
         Account.DebitResult debitResult =
@@ -92,16 +63,16 @@ public class Transfer {
             releaseHoldResult.holdSummary(),
             releaseHoldResult.releasedAmount());
       }
-      case AccountOperation.DebitFromHoldIdOperation operation -> {
-        Account.DebitFromHoldResult debitFromHoldResult =
+      case AccountOperation.DebitHoldIdOperation operation -> {
+        Account.DebitHoldResult debitHoldResult =
             account
-                .debitFromHold(
-                    new Account.DebitFromHoldInstruction(
+                .debitHold(
+                    new Account.DebitHoldInstruction(
                         operation.holdId(),
                         new Account.DebitInstruction(operation.amountToDebit(), metadata)))
                 .await();
-        yield new AccountOperationResult.DebitFromHoldResult(
-            debitFromHoldResult.accountSummary(), debitFromHoldResult.holdSummary());
+        yield new AccountOperationResult.DebitHoldResult(
+            debitHoldResult.accountSummary(), debitHoldResult.holdSummary());
       }
     };
   }

@@ -1,5 +1,7 @@
-package com.lekha.transactions;
+package com.lekha.transfer;
 
+import dev.restate.sdk.Context;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -25,13 +27,24 @@ public interface Planner {
     private static AccountOperation<?, ?> getDebitOperation(
         Transfer.MoveMoneyInstruction instruction) {
       if (instruction.options().sourceAccountHoldId().isPresent()) {
-        return new AccountOperation.DebitFromHoldIdOperation(
+        return new AccountOperation.DebitHoldIdOperation(
             instruction.sourceAccountId(),
             instruction.options().sourceAccountHoldId().get(),
             instruction.amount());
       }
       return new AccountOperation.DebitOperation(
           instruction.sourceAccountId(), instruction.amount());
+    }
+  }
+
+  record TransactionalPlanner(Context ctx) implements Planner {
+    @Override
+    public List<AccountOperation<?, ?>> plan(List<Transfer.MoveMoneyInstruction> instructions) {
+      String transactionId = ctx.request().invocationId().toString();
+      List<AccountOperation<?, ?>> operations = new ArrayList<>(instructions.size() * 2);
+      for (Transfer.MoveMoneyInstruction instruction : instructions) {}
+
+      return operations;
     }
   }
 }

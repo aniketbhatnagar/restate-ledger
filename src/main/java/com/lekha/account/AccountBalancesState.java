@@ -1,4 +1,4 @@
-package com.lekha.accounts;
+package com.lekha.account;
 
 import com.lekha.money.Currency;
 import com.lekha.money.Money;
@@ -23,7 +23,7 @@ public class AccountBalancesState implements AutoCloseable {
 
   private final SharedObjectContext ctx;
   private State state;
-  private boolean flushNeeded = false;
+  private boolean flushNeeded;
 
   private AccountBalancesState(SharedObjectContext ctx, State state, boolean flushNeeded) {
     this.ctx = ctx;
@@ -55,6 +55,10 @@ public class AccountBalancesState implements AutoCloseable {
               availableBalance, amountToSubtract, availableBalanceErrorContext());
           return availableBalance.subtract(amountToSubtract);
         });
+  }
+
+  public Money availableBalance() {
+    return balances().availableBalance();
   }
 
   public void hold(Money amountToHold) {
@@ -89,16 +93,28 @@ public class AccountBalancesState implements AutoCloseable {
         });
   }
 
+  public void addHoldBalance(Money amountToCredit) {
+    this.updateHoldBalance(holdBalance -> holdBalance.add(amountToCredit));
+  }
+
   public Account.AccountBalances balances() {
     return new Account.AccountBalances(this.state.availableBalance, this.state.holdBalance);
   }
 
-  @Override
-  public void close() {
-    flushState();
+  public String accountId() {
+    return this.ctx.key();
   }
 
-  public void flushState() {
+  public Account.AccountSummary accountSummary() {
+    return new Account.AccountSummary(accountId(), balances());
+  }
+
+  @Override
+  public void close() {
+    flush();
+  }
+
+  public void flush() {
     if (flushNeeded) {
       if (!(ctx instanceof ObjectContext)) {
         throw new TerminalException("Cannot flush state in shared context");
@@ -132,10 +148,6 @@ public class AccountBalancesState implements AutoCloseable {
   private void updateState(Function<State, State> mapper) {
     this.state = mapper.apply(state);
     this.flushNeeded = true;
-  }
-
-  private String accountId() {
-    return this.ctx.key();
   }
 
   private Supplier<Map<String, String>> availableBalanceErrorContext() {

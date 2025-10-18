@@ -1,6 +1,6 @@
 package com.lekha.ledger;
 
-import com.lekha.accounts.Account;
+import com.lekha.account.Account;
 import com.lekha.money.Money;
 import dev.restate.sdk.ObjectContext;
 import dev.restate.sdk.annotation.Handler;

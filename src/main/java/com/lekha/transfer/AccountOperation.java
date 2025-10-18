@@ -1,4 +1,4 @@
-package com.lekha.transactions;
+package com.lekha.transfer;
 
 import com.lekha.money.Money;
 
@@ -46,13 +46,13 @@ public sealed interface AccountOperation<
     }
   }
 
-  record DebitFromHoldIdOperation(String accountId, String holdId, Money amountToDebit)
+  record DebitHoldIdOperation(String accountId, String holdId, Money amountToDebit)
       implements AccountOperation<
-          AccountOperationResult.DebitFromHoldResult, AccountOperationResult.CreditResult> {
+          AccountOperationResult.DebitHoldResult, AccountOperationResult.CreditResult> {
     @Override
     public AccountOperation<
-            AccountOperationResult.CreditResult, AccountOperationResult.DebitFromHoldResult>
-        reversed(AccountOperationResult.DebitFromHoldResult result) {
+            AccountOperationResult.CreditResult, AccountOperationResult.DebitHoldResult>
+        reversed(AccountOperationResult.DebitHoldResult result) {
       throw new UnsupportedOperationException();
     }
   }

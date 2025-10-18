@@ -2,10 +2,10 @@ package com.lekha.testsetup;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.lekha.accounts.Account;
-import com.lekha.accounts.AccountClient;
-import com.lekha.accounts.AccountType;
-import com.lekha.accounts.OperationMetadataFactory;
+import com.lekha.account.Account;
+import com.lekha.account.AccountClient;
+import com.lekha.account.AccountType;
+import com.lekha.account.OperationMetadataFactory;
 import com.lekha.money.Currency;
 import com.lekha.money.Money;
 import dev.restate.client.Client;

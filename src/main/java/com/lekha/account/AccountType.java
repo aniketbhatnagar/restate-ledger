@@ -1,4 +1,4 @@
-package com.lekha.accounts;
+package com.lekha.account;
 
 public enum AccountType {
   ASSET(false),

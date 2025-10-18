@@ -1,4 +1,4 @@
-package com.lekha.accounts;
+package com.lekha.account;
 
 import com.lekha.clock.Clock;
 import com.lekha.ledger.Ledger;

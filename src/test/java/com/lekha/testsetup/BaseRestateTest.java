@@ -1,8 +1,8 @@
 package com.lekha.testsetup;
 
-import com.lekha.accounts.Account;
+import com.lekha.account.Account;
 import com.lekha.ledger.Ledger;
-import com.lekha.transactions.Transfer;
+import com.lekha.transfer.Transfer;
 import dev.restate.client.Client;
 import dev.restate.sdk.testing.BindService;
 import dev.restate.sdk.testing.RestateClient;

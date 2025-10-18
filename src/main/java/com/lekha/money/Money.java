@@ -47,4 +47,11 @@ public record Money(Currency currency, BigInteger amountInMinorUnits) {
   public boolean isZero() {
     return amountInMinorUnits.compareTo(BigInteger.ZERO) == 0;
   }
+
+  public Money min(Money totalBalanceToDrain) {
+    if (this.isLessThan(totalBalanceToDrain)) {
+      return this;
+    }
+    return totalBalanceToDrain;
+  }
 }
