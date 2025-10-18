@@ -301,9 +301,17 @@ public class AccountTest extends BaseRestateTest {
     assertHoldBalance(holdSummary, balance);
   }
 
+  private void assertCurrentTransactionalHoldBalance(String holdId, int balance) {
+    Account.HoldSummary holdSummary = accountClient.getTransactionalHoldSummary(holdId);
+    assertHoldBalance(holdSummary, balance);
+  }
+
   private void assertSummaryAndCurrentBalances(Account.HoldSummary holdSummary, int balance) {
     assertHoldBalance(holdSummary, balance);
-    assertCurrentHoldBalance(holdSummary.holdId(), balance);
+    switch (holdSummary.holdType()) {
+      case TRANSACTION -> assertCurrentTransactionalHoldBalance(holdSummary.holdId(), balance);
+      case USER -> assertCurrentHoldBalance(holdSummary.holdId(), balance);
+    }
   }
 
   private void assertHoldDoesNotExists(String holdId) {

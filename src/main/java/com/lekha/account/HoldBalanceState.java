@@ -49,15 +49,18 @@ public class HoldBalanceState implements AutoCloseable {
     return ctx.get(holdStateKey(holdId)).isPresent();
   }
 
-  public static HoldBalanceState getExisting(SharedObjectContext ctx, String holdId) {
+  public static HoldBalanceState getExisting(
+      SharedObjectContext ctx, String holdId, Account.HoldType holdType) {
     State state = getStateOrThrow(ctx, holdId);
-    return new HoldBalanceState(ctx, holdId, state);
+    HoldBalanceState hold = new HoldBalanceState(ctx, holdId, state);
+    hold.ensureHoldType(holdType);
+    return hold;
   }
 
   public static HoldBalanceState getExistingOrCreate(
       ObjectContext ctx, String holdId, Account.HoldType holdType, Currency currency) {
     if (exits(ctx, holdId)) {
-      return getExisting(ctx, holdId);
+      return getExisting(ctx, holdId, holdType);
     }
     return create(ctx, holdId, holdType, currency);
   }

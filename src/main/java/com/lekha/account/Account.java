@@ -57,6 +57,10 @@ public class Account {
 
   public record DebitHoldResult(AccountSummary accountSummary, HoldSummary holdSummary) {}
 
+  public record CreditHoldInstruction(String holdId, CreditInstruction creditInstruction) {}
+
+  public record CreditHoldResult(AccountSummary accountSummary, HoldSummary holdSummary) {}
+
   public record TransactionalDebitInstruction(
       String transactionId, DebitInstruction debitInstruction) {}
 
@@ -211,8 +215,8 @@ public class Account {
         return new ReleaseHoldResult(accountSummary, holdSummary, amountReleased);
       }
 
-      try (HoldBalanceState holdBalanceState = HoldBalanceState.getExisting(ctx, holdId)) {
-        holdBalanceState.ensureHoldType(holdType);
+      try (HoldBalanceState holdBalanceState =
+          HoldBalanceState.getExisting(ctx, holdId, holdType)) {
         Money amountToRelease = holdBalanceState.availableBalance();
         amountToRelease.ensurePositive();
         holdBalanceState.subtractAvailableBalance(amountToRelease);
@@ -245,7 +249,17 @@ public class Account {
   @Shared
   @Handler
   public HoldSummary getHoldSummary(SharedObjectContext ctx, String holdId) {
-    try (HoldBalanceState holdBalanceState = HoldBalanceState.getExisting(ctx, holdId)) {
+    try (HoldBalanceState holdBalanceState =
+        HoldBalanceState.getExisting(ctx, holdId, HoldType.USER)) {
+      return holdBalanceState.holdSummary();
+    }
+  }
+
+  @Shared
+  @Handler
+  public HoldSummary getTransactionalHoldSummary(SharedObjectContext ctx, String holdId) {
+    try (HoldBalanceState holdBalanceState =
+        HoldBalanceState.getExisting(ctx, holdId, HoldType.TRANSACTION)) {
       return holdBalanceState.holdSummary();
     }
   }
@@ -256,8 +270,8 @@ public class Account {
       String accountId = ctx.key();
       Money amountToDebit = instruction.debitInstruction().amountToDebit();
       String holdId = instruction.holdId();
-      try (HoldBalanceState holdBalanceState = HoldBalanceState.getExisting(ctx, holdId)) {
-        holdBalanceState.ensureHoldType(HoldType.USER);
+      try (HoldBalanceState holdBalanceState =
+          HoldBalanceState.getExisting(ctx, holdId, HoldType.USER)) {
         holdBalanceState.subtractAvailableBalance(amountToDebit);
         accountBalancesState.subtractHoldBalance(amountToDebit);
 
@@ -273,6 +287,37 @@ public class Account {
             holdSummary,
             instruction.debitInstruction().metadata());
         return new DebitHoldResult(accountSummary, holdSummary);
+      }
+    }
+  }
+
+  @Handler
+  public CreditHoldResult creditHold(ObjectContext ctx, CreditHoldInstruction instruction) {
+    return creditHold(ctx, HoldType.USER, instruction.holdId(), instruction.creditInstruction());
+  }
+
+  private CreditHoldResult creditHold(
+      ObjectContext ctx, HoldType holdType, String holdId, CreditInstruction instruction) {
+    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+      String accountId = ctx.key();
+      Money amountToCredit = instruction.amountToCredit();
+      try (HoldBalanceState transactionHoldState =
+               HoldBalanceState.getExistingOrCreate(ctx, holdId, holdType, amountToCredit.currency())) {
+        accountBalancesState.addHoldBalance(amountToCredit);
+        transactionHoldState.addAvailableBalance(amountToCredit);
+
+        AccountSummary accountSummary = accountBalancesState.accountSummary();
+        HoldSummary holdSummary = transactionHoldState.holdSummary();
+        LedgerRecorder ledgerRecorder = new LedgerRecorder(ctx, accountId);
+        ledgerRecorder.recordHoldBalanceChangeInLedger(
+            "hold_credit",
+            amountToCredit,
+            Ledger.Operation.CREDIT,
+            accountSummary,
+            holdSummary,
+            instruction.metadata());
+
+        return new CreditHoldResult(accountSummary, holdSummary);
       }
     }
   }
@@ -384,29 +429,13 @@ public class Account {
   @Handler
   public TransactionalCreditResult transactionalCredit(
       ObjectContext ctx, TransactionalCreditInstruction instruction) {
-    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
-      String accountId = ctx.key();
-      Money amountToCredit = instruction.creditInstruction().amountToCredit();
-      String transactionHoldId = instruction.transactionId();
-      try (HoldBalanceState transactionHoldState =
-          HoldBalanceState.getExistingOrCreate(
-              ctx, transactionHoldId, HoldType.TRANSACTION, amountToCredit.currency())) {
-        accountBalancesState.addHoldBalance(amountToCredit);
-        transactionHoldState.addAvailableBalance(amountToCredit);
-
-        AccountSummary accountSummary = accountBalancesState.accountSummary();
-        HoldSummary holdSummary = transactionHoldState.holdSummary();
-        LedgerRecorder ledgerRecorder = new LedgerRecorder(ctx, accountId);
-        ledgerRecorder.recordHoldBalanceChangeInLedger(
-            "hold_credit",
-            amountToCredit,
-            Ledger.Operation.CREDIT,
-            accountSummary,
-            holdSummary,
-            instruction.creditInstruction().metadata());
-
-        return new TransactionalCreditResult(accountSummary, holdSummary);
-      }
-    }
+    CreditHoldResult creditHoldResult =
+        creditHold(
+            ctx,
+            HoldType.TRANSACTION,
+            instruction.transactionId(),
+            instruction.creditInstruction());
+    return new TransactionalCreditResult(
+        creditHoldResult.accountSummary(), creditHoldResult.holdSummary());
   }
 }
