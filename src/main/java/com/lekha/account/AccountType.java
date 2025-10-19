@@ -2,7 +2,10 @@ package com.lekha.account;
 
 public enum AccountType {
   ASSET(false),
-  LIABILITY(true);
+  LIABILITY(true),
+  EQUITY(false),
+  REVENUE(false),
+  EXPENSE(true);
 
   private final boolean debitsDecreaseBalance;
 
