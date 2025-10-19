@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -237,51 +238,66 @@ public class TransferTest extends BaseRestateTest {
   @ParameterizedTest
   @EnumSource(BulkMoveType.class)
   public void bulkMove_orderPartialFillScenario(BulkMoveType bulkMoveType) {
-    String assetAccountId = UUID.randomUUID() + "-asset-1";
-    String liabilityAccountId = UUID.randomUUID() + "-liability-1";
-    AccountHelper assetAccount =
-        AccountHelper.newUSDAssetAccountHelper(ingressClient, assetAccountId);
-    AccountHelper liabilityAccount =
-        AccountHelper.newUSDLiabilityAccountHelper(ingressClient, liabilityAccountId);
+    String assetAccountId1 = UUID.randomUUID() + "-asset-1";
+    String assetAccountId2 = UUID.randomUUID() + "-asset-2";
+    String liabilityAccountId1 = UUID.randomUUID() + "-liability-1";
+    String liabilityAccountId2 = UUID.randomUUID() + "-liability-1";
+    AccountHelper assetAccount1 =
+        AccountHelper.newUSDAssetAccountHelper(ingressClient, assetAccountId1);
+    AccountHelper assetAccount2 =
+        AccountHelper.newUSDAssetAccountHelper(ingressClient, assetAccountId2);
+    AccountHelper liabilityAccount1 =
+        AccountHelper.newUSDLiabilityAccountHelper(ingressClient, liabilityAccountId1);
+    AccountHelper liabilityAccount2 =
+        AccountHelper.newUSDLiabilityAccountHelper(ingressClient, liabilityAccountId2);
 
     int initialBalance = 1000;
     transferClient.move(
         new Transfer.MoveMoneyInstruction(
-            assetAccountId,
-            liabilityAccountId,
+            assetAccountId1,
+            liabilityAccountId1,
             new Money(Currency.USD, BigInteger.valueOf(initialBalance)),
             moveMoneyInstructionOptions()));
 
     int orderAmount = 750;
-    Account.HoldResult holdResult = liabilityAccount.hold(orderAmount);
+    Account.HoldResult holdResult = liabilityAccount1.hold(orderAmount);
     String holdId = holdResult.holdSummary().holdId();
-    liabilityAccount.assertAvailableBalance(initialBalance - orderAmount);
-    liabilityAccount.assertHoldBalance(orderAmount);
+    liabilityAccount1.assertAvailableBalance(initialBalance - orderAmount);
+    liabilityAccount1.assertHoldBalance(orderAmount);
 
     int[] orderFills = new int[] {10, 25, 55, 75};
     int totalOrderFills = Arrays.stream(orderFills).sum();
     List<Transfer.MoveMoneyInstruction> moveMoneyInstructions =
         Arrays.stream(orderFills)
-            .mapToObj(
+            .boxed()
+            .flatMap(
                 fill ->
-                    new Transfer.MoveMoneyInstruction(
-                        liabilityAccountId,
-                        assetAccountId,
-                        new Money(Currency.USD, BigInteger.valueOf(fill)),
-                        moveMoneyInstructionOptions(holdId)))
+                    Stream.of(
+                        new Transfer.MoveMoneyInstruction(
+                            liabilityAccountId1,
+                            assetAccountId1,
+                            new Money(Currency.USD, BigInteger.valueOf(fill)),
+                            moveMoneyInstructionOptions(holdId)),
+                        new Transfer.MoveMoneyInstruction(
+                            assetAccountId2,
+                            liabilityAccountId2,
+                            new Money(Currency.USD, BigInteger.valueOf(fill)),
+                            moveMoneyInstructionOptions())))
             .toList();
     executeBulkMove(bulkMoveType, moveMoneyInstructions);
 
-    liabilityAccount.assertAvailableBalance(initialBalance - orderAmount);
-    liabilityAccount.assertHoldBalance(orderAmount - totalOrderFills);
-    assetAccount.assertAvailableBalance(initialBalance - totalOrderFills);
+    liabilityAccount1.assertAvailableBalance(initialBalance - orderAmount);
+    liabilityAccount1.assertHoldBalance(orderAmount - totalOrderFills);
+    liabilityAccount2.assertAvailableBalance(totalOrderFills);
+    liabilityAccount2.assertHoldBalance(0);
+    assetAccount1.assertAvailableBalance(initialBalance - totalOrderFills);
 
-    Account.ReleaseHoldResult releaseHoldResult = liabilityAccount.releaseHold(holdId);
+    Account.ReleaseHoldResult releaseHoldResult = liabilityAccount1.releaseHold(holdId);
     assertThat(releaseHoldResult.releasedAmount().amountInMinorUnits())
         .isEqualTo(BigInteger.valueOf(orderAmount - totalOrderFills));
-    liabilityAccount.assertAvailableBalance(initialBalance - totalOrderFills);
-    liabilityAccount.assertHoldBalance(0);
-    assetAccount.assertAvailableBalance(initialBalance - totalOrderFills);
+    liabilityAccount1.assertAvailableBalance(initialBalance - totalOrderFills);
+    liabilityAccount1.assertHoldBalance(0);
+    assetAccount1.assertAvailableBalance(initialBalance - totalOrderFills);
   }
 
   private void executeBulkMove(
