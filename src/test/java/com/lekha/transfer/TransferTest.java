@@ -291,6 +291,7 @@ public class TransferTest extends BaseRestateTest {
     liabilityAccount2.assertAvailableBalance(totalOrderFills);
     liabilityAccount2.assertHoldBalance(0);
     assetAccount1.assertAvailableBalance(initialBalance - totalOrderFills);
+    assetAccount2.assertAvailableBalance(totalOrderFills);
 
     Account.ReleaseHoldResult releaseHoldResult = liabilityAccount1.releaseHold(holdId);
     assertThat(releaseHoldResult.releasedAmount().amountInMinorUnits())
