@@ -33,7 +33,7 @@ public class AccountTest extends BaseRestateTest {
   }
 
   @Test
-  public void liabilityAccountDebitCredit() {
+  public void liabilityAccount_debitCredit() {
     initAccount(AccountType.LIABILITY);
 
     int amountToCredit = 1000;
@@ -51,7 +51,7 @@ public class AccountTest extends BaseRestateTest {
   }
 
   @Test
-  public void assetAccountDebitCredit() {
+  public void assetAccount_debitCredit() {
     initAccount(AccountType.ASSET);
 
     int amountToDebit = 1000;
@@ -69,7 +69,7 @@ public class AccountTest extends BaseRestateTest {
   }
 
   @Test
-  public void liabilityAccountHoldAndDebit() {
+  public void liabilityAccount_holdAndDebitHold() {
     initAccount(AccountType.LIABILITY);
 
     int initialBalance = 1000;
@@ -94,7 +94,7 @@ public class AccountTest extends BaseRestateTest {
   }
 
   @Test
-  public void liabilityAccountMultipleHoldsAndDebit() {
+  public void liabilityAccount_multipleHoldsAndDebit() {
     initAccount(AccountType.LIABILITY);
 
     int initialBalance = 1000;
@@ -139,6 +139,37 @@ public class AccountTest extends BaseRestateTest {
   }
 
   @Test
+  public void assetAccount_transactionalReleaseHold_noOp() {
+    initAccount(AccountType.ASSET);
+
+    String transactionId = UUID.randomUUID().toString();
+    Account.TransactionalReleaseHoldResult releaseHoldResult =
+        accountClient.transactionReleaseHold(transactionalReleaseHoldInstruction(transactionId));
+
+    assertSummaryAndCurrentBalances(releaseHoldResult.accountSummary(), 0, 0);
+    assertHoldBalance(releaseHoldResult.transactionHoldSummary(), 0);
+    assertHoldDoesNotExists(releaseHoldResult.transactionHoldSummary().holdId());
+  }
+
+  @Test
+  public void assetAccount_transactionalCredit_doesNotHold() {
+    initAccount(AccountType.ASSET);
+
+    int initialBalance = 1000;
+    accountClient.debit(debitInstruction(initialBalance));
+
+    String transactionId = UUID.randomUUID().toString();
+    int amountToCredit = 563;
+    Account.TransactionalCreditResult transactionalCreditResult =
+        accountClient.transactionalCredit(
+            transactionCreditInstruction(transactionId, amountToCredit));
+
+    assertSummaryAndCurrentBalances(
+        transactionalCreditResult.accountSummary(), initialBalance - amountToCredit, 0);
+    assertHoldDoesNotExists(transactionalCreditResult.transactionHoldSummary().holdId());
+  }
+
+  @Test
   public void liabilityAccount_transactionalCredit_thenReleaseHold() {
     initAccount(AccountType.LIABILITY);
 
@@ -157,6 +188,23 @@ public class AccountTest extends BaseRestateTest {
     assertSummaryAndCurrentBalances(releaseHoldResult.accountSummary(), amountToCredit, 0);
     assertHoldBalance(releaseHoldResult.transactionHoldSummary(), 0);
     assertHoldDoesNotExists(releaseHoldResult.transactionHoldSummary().holdId());
+  }
+
+  @Test
+  public void assetAccount_transactionalDebit_doesNotHold() {
+    initAccount(AccountType.ASSET);
+
+    int initialBalance = 1000;
+    accountClient.debit(debitInstruction(initialBalance));
+
+    String transactionId = UUID.randomUUID().toString();
+    int amountToDebit = 563;
+    Account.TransactionalDebitResult transactionalDebitResult =
+        accountClient.transactionalDebit(transactionDebitInstruction(transactionId, amountToDebit));
+
+    assertSummaryAndCurrentBalances(
+        transactionalDebitResult.accountSummary(), initialBalance + amountToDebit, 0);
+    assertHoldDoesNotExists(transactionalDebitResult.transactionHoldSummary().holdId());
   }
 
   @Test
@@ -198,7 +246,7 @@ public class AccountTest extends BaseRestateTest {
 
   @Test
   public void
-      liabilityAccount_transactionalDebit_withExistingTransactionalHoldNotEnoughToCoverDEbit() {
+      liabilityAccount_transactionalDebit_withExistingTransactionalHoldNotEnoughToCoverDebit() {
     initAccount(AccountType.LIABILITY);
 
     int initialBalance = 1000;

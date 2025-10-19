@@ -142,6 +142,6 @@ public class HoldBalanceState implements AutoCloseable {
 
   private static State getStateOrThrow(SharedObjectContext ctx, String holdId) {
     return ctx.get(holdStateKey(holdId))
-        .orElseThrow(() -> new TerminalException("account state not present"));
+        .orElseThrow(() -> new TerminalException("hold state not present"));
   }
 }

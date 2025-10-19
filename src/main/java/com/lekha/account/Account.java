@@ -338,8 +338,8 @@ public class Account {
         Money amountToDebit = instruction.debitInstruction().amountToDebit();
         String transactionHoldId = instruction.transactionId();
         try (HoldBalanceState transactionHoldState =
-                 HoldBalanceState.getExistingOrCreate(
-                     ctx, transactionHoldId, HoldType.TRANSACTION, amountToDebit.currency())) {
+            HoldBalanceState.getExistingOrCreate(
+                ctx, transactionHoldId, HoldType.TRANSACTION, amountToDebit.currency())) {
           // First debit from transaction hold and then account's available balance.
           drain(
               ctx,
