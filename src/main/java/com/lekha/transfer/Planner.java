@@ -5,13 +5,19 @@ import java.util.stream.Stream;
 
 public interface Planner {
 
-  List<AccountOperation<?, ?>> plan(List<Transfer.MoveMoneyInstruction> instructions);
+  record Plan(
+      List<AccountOperation<?, ?>> serialOperations,
+      List<AccountOperation<?, ?>> parallelCleanupOperations) {}
+
+  Plan plan(List<Transfer.MoveMoneyInstruction> instructions);
 
   record NonTransactionalPlanner() implements Planner {
 
     @Override
-    public List<AccountOperation<?, ?>> plan(List<Transfer.MoveMoneyInstruction> instructions) {
-      return instructions.stream().flatMap(this::toAccountOperations).toList();
+    public Plan plan(List<Transfer.MoveMoneyInstruction> instructions) {
+      List<AccountOperation<?, ?>> operations =
+          instructions.stream().flatMap(this::toAccountOperations).toList();
+      return new Plan(operations, List.of());
     }
 
     private Stream<AccountOperation<?, ?>> toAccountOperations(
@@ -39,7 +45,7 @@ public interface Planner {
 
   record TransactionalPlanner(String transactionId) implements Planner {
     @Override
-    public List<AccountOperation<?, ?>> plan(List<Transfer.MoveMoneyInstruction> instructions) {
+    public Plan plan(List<Transfer.MoveMoneyInstruction> instructions) {
       List<AccountOperation<?, ?>> operations = new ArrayList<>(instructions.size() * 2);
       Set<String> transactionalHoldAccountIds = new LinkedHashSet<>();
       for (Transfer.MoveMoneyInstruction instruction : instructions) {
@@ -57,13 +63,14 @@ public interface Planner {
         transactionalHoldAccountIds.add(instruction.destinationAccountId());
       }
 
+      List<AccountOperation<?, ?>> cleanups = new ArrayList<>(transactionalHoldAccountIds.size());
       for (String transactionalHoldAccountId : transactionalHoldAccountIds) {
-        operations.add(
+        cleanups.add(
             new AccountOperation.TransactionalReleaseHold(
                 transactionalHoldAccountId, transactionId));
       }
 
-      return operations;
+      return new Plan(operations, cleanups);
     }
   }
 }

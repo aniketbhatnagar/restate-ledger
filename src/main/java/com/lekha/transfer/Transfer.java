@@ -4,6 +4,8 @@ import com.lekha.money.Money;
 import dev.restate.sdk.Context;
 import dev.restate.sdk.annotation.Handler;
 import dev.restate.sdk.annotation.Service;
+import dev.restate.serde.TypeRef;
+import dev.restate.serde.TypeTag;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,25 +24,35 @@ public class Transfer {
 
   @Handler
   public void move(Context ctx, MoveMoneyInstruction instruction) {
-    Planner planner = new Planner.NonTransactionalPlanner();
-    List<AccountOperation<?, ?>> operations = planner.plan(List.of(instruction));
-    Executor executor = new Executor(ctx);
-    executor.executeOperations(ctx, operations);
+    bulkMove(ctx, List.of(instruction));
   }
 
   @Handler
   public void bulkMove(Context ctx, List<MoveMoneyInstruction> instructions) {
-    Planner planner = new Planner.NonTransactionalPlanner();
-    List<AccountOperation<?, ?>> operations = planner.plan(instructions);
+    Planner.Plan plan =
+        ctx.run(
+            "plan",
+            TypeTag.of(new TypeRef<>() {}),
+            () -> {
+              Planner planner = new Planner.NonTransactionalPlanner();
+              return planner.plan(instructions);
+            });
     Executor executor = new Executor(ctx);
-    executor.executeOperations(ctx, operations);
+    executor.executeOperations(ctx, plan);
   }
 
   @Handler
   public void transactionalBulkMove(Context ctx, List<MoveMoneyInstruction> instructions) {
-    Planner planner = new Planner.TransactionalPlanner(ctx.request().invocationId().toString());
-    List<AccountOperation<?, ?>> operations = planner.plan(instructions);
+    Planner.Plan plan =
+        ctx.run(
+            "plan",
+            TypeTag.of(new TypeRef<>() {}),
+            () -> {
+              String transactionId = ctx.request().invocationId().toString();
+              Planner planner = new Planner.TransactionalPlanner(transactionId);
+              return planner.plan(instructions);
+            });
     Executor executor = new Executor(ctx);
-    executor.executeOperations(ctx, operations);
+    executor.executeOperations(ctx, plan);
   }
 }

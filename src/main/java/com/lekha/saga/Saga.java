@@ -4,7 +4,7 @@ import dev.restate.sdk.common.TerminalException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Saga {
+public class Saga implements AutoCloseable {
 
   @FunctionalInterface
   public interface WorkflowRunnable {
@@ -21,6 +21,7 @@ public class Saga {
     void apply(T input) throws TerminalException;
   }
 
+  private boolean needsCompensation = false;
   private final List<WorkflowRunnable> compensations = new ArrayList<>();
 
   public <T> T run(WorkflowSupplier<T> task, WorkflowFunction<T> compensation) {
@@ -29,7 +30,7 @@ public class Saga {
       this.compensations.add(() -> compensation.apply(result));
       return result;
     } catch (TerminalException e) {
-      this.compensate();
+      needsCompensation = true;
       throw e;
     }
   }
@@ -39,12 +40,19 @@ public class Saga {
       task.run();
       this.compensations.add(compensation);
     } catch (TerminalException e) {
-      this.compensate();
+      needsCompensation = true;
       throw e;
     }
   }
 
-  public void compensate() {
+  @Override
+  public void close() {
+    if (needsCompensation) {
+      compensate();
+    }
+  }
+
+  private void compensate() {
     // run compensations in reverse order
     for (int i = compensations.size() - 1; i >= 0; i--) {
       compensations.get(i).run();

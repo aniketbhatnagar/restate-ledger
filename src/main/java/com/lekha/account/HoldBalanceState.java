@@ -128,7 +128,10 @@ public class HoldBalanceState implements AutoCloseable {
   public void ensureHoldType(Account.HoldType holdType) {
     if (!state.holdDetails().holdType().equals(holdType)) {
       throw new TerminalException(
-          "Hold type mismatch: expected " + holdType + ", got " + state.holdDetails().holdType());
+          "Hold getType mismatch: expected "
+              + holdType
+              + ", got "
+              + state.holdDetails().holdType());
     }
   }
 
