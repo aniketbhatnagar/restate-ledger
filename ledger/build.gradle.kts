@@ -4,7 +4,7 @@ plugins {
   id("com.diffplug.spotless")
 }
 
-val restateVersion = "2.4.0"
+val restateVersion: String by rootProject.extra
 
 dependencies {
   annotationProcessor("dev.restate:sdk-api-gen:$restateVersion")

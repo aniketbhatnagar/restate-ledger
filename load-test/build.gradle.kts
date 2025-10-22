@@ -1,21 +1,22 @@
 plugins {
   java
-  application
+  id("io.gatling.gradle") version "3.10.5"
   id("com.diffplug.spotless")
 }
 
+val gatlingVersion = "3.10.5"
+val restateVersion: String by rootProject.extra
+
 dependencies {
-  implementation(project(":ledger"))
+  gatlingImplementation(project(":ledger"))
+  gatlingImplementation("dev.restate:client:$restateVersion")
+  gatlingImplementation("dev.restate:sdk-java-http:$restateVersion")
 }
 
 java {
   toolchain {
     languageVersion.set(JavaLanguageVersion.of(21))
   }
-}
-
-application {
-  mainClass.set("com.lekha.loadtest.LoadTestMain")
 }
 
 spotless {
@@ -26,8 +27,4 @@ spotless {
     formatAnnotations()
     toggleOffOn("//", "/n")
   }
-}
-
-tasks.test {
-  useJUnitPlatform()
 }

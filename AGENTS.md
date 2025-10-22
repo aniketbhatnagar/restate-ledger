@@ -11,6 +11,14 @@ The project is a proof of concept implementation of transactional ledger that su
    3. Transfer.transactionalBulkMove: A move like Transfer.bulkMove but meant to be "transactional" so that any credit in the movement is not readily available to spend until all movements are complete. Internally, this is managed by creating a transactional hold to which all credits are made and once all money movement happens, the hold is released.
 
 With this proof of concept implementation, we want to run a load test to understand performance of ledger built using restate. 
+Scenarios for load tests:
+1. Move between accounts: Initialize an asset and N liability accounts. Each scenario runs moves funds from asset to a randomly picked liability account.
+2. Move between accounts with hold: Initialize an asset and N liability accounts. Credit a large amount to each liability account by moving funds from asset to liability account and hold those funds. Each scenario runs moves randomly picked liability account to asset account and passes in the respective hold ID.
+3. Transaction move: Initialize an asset and N liability accounts. Credit a large amount to each liability account by moving funds from asset to liability account. Each scenario run 3 liability accounts and does the following transactional bulk move: 
+   1. X funds from Liability account1 -> Liability account2. 
+   2. X/2 funds from Liability account2 -> Liability account3.
+   3. X/2 funds Liability account1 -> asset account.
+   4. X/2 funds Liability account3 -> asset account.  
 
 ## Project Structure & Module Organization
 Restate ledger sample built on the Gradle Java application plugin. Core services live in `src/main/java/com/lekha/...`; `AppMain` wires Restate handlers. Shared configs, JSON schemas, and static assets belong in `src/main/resources`. Integration and unit tests reside in `src/test/java`, mirroring package layout to keep fixtures close to code. Build logic stays in `build.gradle.kts`, while helper scripts live under `gradle/`.
