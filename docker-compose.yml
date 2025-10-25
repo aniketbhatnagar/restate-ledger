@@ -1,0 +1,53 @@
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    ports:
+      - "16686:16686"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  runtime:
+    image: docker.io/restatedev/restate
+    depends_on:
+      jaeger:
+        condition: service_started
+    ports:
+      - "9070:9070"
+      - "9071:9071"
+      - "8080:8080"
+    volumes:
+      - ./.devcontainer/restate-docker.toml:/restate.toml:ro
+    environment:
+      - RESTATE_CONFIG=/restate.toml
+
+  ledger:
+    build:
+      context: .
+      dockerfile: Dockerfile.ledger
+    depends_on:
+      runtime:
+        condition: service_started
+    environment:
+      LEDGER_PUBLIC_URI: http://ledger:9080
+      RESTATE_ADMIN_HOST: runtime
+      RESTATE_ADMIN_PORT: "9070"
+    ports:
+      - "9080:9080"
+
+  load-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.load-test
+    depends_on:
+      runtime:
+        condition: service_started
+      ledger:
+        condition: service_started
+    environment:
+      LEDGER_LOAD_BASE_URI: http://runtime:8080
+      LEDGER_LOAD_SIMULATION: MoveBetweenAccountsSimulation
+      LEDGER_LOAD_RESULTS_DIR: /var/load-test/results
+    volumes:
+      - ./load-test/reports:/var/load-test/results
+    # Uncomment to keep the container alive for inspection after the run.
+    # command: ["sh", "-c", "./bin/load-test && tail -f /dev/null"]

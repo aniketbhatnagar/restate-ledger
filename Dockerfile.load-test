@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1.6
+FROM eclipse-temurin:21-jdk AS build
+WORKDIR /workspace
+
+COPY gradlew gradlew.bat settings.gradle.kts build.gradle.kts ./
+COPY gradle gradle
+COPY ledger ledger
+COPY load-test load-test
+
+RUN chmod +x gradlew
+RUN ./gradlew --no-daemon :load-test:installDist
+
+FROM eclipse-temurin:21-jre
+WORKDIR /opt/load-test
+
+COPY --from=build /workspace/load-test/build/install/load-test .
+
+ENV LEDGER_LOAD_BASE_URI=http://runtime:8080
+
+ENTRYPOINT ["./bin/load-test"]

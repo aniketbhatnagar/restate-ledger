@@ -20,13 +20,34 @@ public class AppMain {
     LOG.info("App started");
 
     ApiClient adminApiClient = new ApiClient();
-    adminApiClient.setHost("runtime");
-    adminApiClient.setPort(9070);
+    adminApiClient.setHost(envOrDefault("RESTATE_ADMIN_HOST", "runtime"));
+    adminApiClient.setPort(envIntOrDefault("RESTATE_ADMIN_PORT", 9070));
     DeploymentApi deploymentApi = new DeploymentApi(adminApiClient);
     RegisterDeploymentRequestAnyOf registerRequest = new RegisterDeploymentRequestAnyOf();
-    registerRequest.uri("http://devcontainer:9080");
+    registerRequest.uri(envOrDefault("LEDGER_PUBLIC_URI", "http://localhost:9080"));
     RegisterDeploymentRequest deploymentRequest = new RegisterDeploymentRequest(registerRequest);
     deploymentApi.createDeployment(deploymentRequest);
     LOG.info("App registered");
+  }
+
+  private static String envOrDefault(String key, String defaultValue) {
+    String value = System.getenv(key);
+    if (value == null || value.isBlank()) {
+      return defaultValue;
+    }
+    return value;
+  }
+
+  private static int envIntOrDefault(String key, int defaultValue) {
+    String value = System.getenv(key);
+    if (value == null || value.isBlank()) {
+      return defaultValue;
+    }
+    try {
+      return Integer.parseInt(value);
+    } catch (NumberFormatException e) {
+      LOG.warn("Invalid integer for {} ({}), using {}", key, value, defaultValue);
+      return defaultValue;
+    }
   }
 }
