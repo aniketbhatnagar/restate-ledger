@@ -23,7 +23,7 @@ public class MoveBetweenAccountsSimulation extends Simulation {
     ScenarioBuilder moveScenario =
         scenario("move-between-accounts")
             .forever()
-            .on(exec(new FutureActionBuilder(this::executeMove)));
+            .on(exec(new FutureActionBuilder("move-funds", this::executeMove)));
 
     Duration duration = SETTINGS.runDuration();
     setUp(
