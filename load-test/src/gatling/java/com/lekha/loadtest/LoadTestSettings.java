@@ -14,7 +14,7 @@ record LoadTestSettings(
 
   static LoadTestSettings fromEnvironment() {
     String baseUri =
-        readString("ledger.load.baseUri", "LEDGER_LOAD_BASE_URI", "http://localhost:8080");
+        readString("ledger.load.baseUri", "LEDGER_LOAD_BASE_URI", "http://runtime:8080");
     int liabilityAccounts =
         readPositiveInt("ledger.load.liabilityAccounts", "LEDGER_LOAD_LIABILITY_ACCOUNTS", 10);
     int concurrentUsers =

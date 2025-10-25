@@ -12,6 +12,7 @@ dependencies {
   // Restate SDK
   implementation("dev.restate:sdk-java-http:$restateVersion")
   implementation("dev.restate:client:${restateVersion}")
+  implementation("dev.restate:admin-client:${restateVersion}")
 
   // Serde
   implementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.4")
