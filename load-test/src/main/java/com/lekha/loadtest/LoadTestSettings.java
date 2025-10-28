@@ -16,11 +16,11 @@ record LoadTestSettings(
     String baseUri =
         readString("ledger.load.baseUri", "LEDGER_LOAD_BASE_URI", "http://runtime:8080");
     int liabilityAccounts =
-        readPositiveInt("ledger.load.liabilityAccounts", "LEDGER_LOAD_LIABILITY_ACCOUNTS", 10);
+        readPositiveInt("ledger.load.liabilityAccounts", "LEDGER_LOAD_LIABILITY_ACCOUNTS", 500);
     int concurrentUsers =
-        readPositiveInt("ledger.load.concurrentUsers", "LEDGER_LOAD_CONCURRENT_USERS", 10);
+        readPositiveInt("ledger.load.concurrentUsers", "LEDGER_LOAD_CONCURRENT_USERS", 50);
     int durationSeconds =
-        readPositiveInt("ledger.load.durationSeconds", "LEDGER_LOAD_DURATION_SECONDS", 60);
+        readPositiveInt("ledger.load.durationSeconds", "LEDGER_LOAD_DURATION_SECONDS", 600);
     Money transferAmount =
         new Money(
             Currency.USD,
