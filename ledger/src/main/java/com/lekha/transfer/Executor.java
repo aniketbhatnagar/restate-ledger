@@ -3,6 +3,7 @@ package com.lekha.transfer;
 import com.lekha.account.Account;
 import com.lekha.account.AccountClient;
 import com.lekha.saga.Saga;
+import dev.restate.sdk.Awakeable;
 import dev.restate.sdk.Context;
 import dev.restate.sdk.DurableFuture;
 import java.util.ArrayList;
@@ -51,6 +52,18 @@ public record Executor(Context ctx) {
             account.debit(new Account.DebitInstruction(operation.amountToDebit(), metadata));
         yield debitResultFuture.map(
             debitResult -> new AccountOperationResult.Debit(debitResult.accountSummary()));
+      }
+      case AccountOperation.AsyncDebit operation -> {
+        Awakeable<Account.AsyncDebitResult> debitResultAwakeable =
+            ctx.awakeable(Account.AsyncDebitResult.class);
+        Account.DebitInstruction debitInstruction =
+            new Account.DebitInstruction(operation.amountToDebit(), metadata);
+        Account.SignalInstruction signalInstruction =
+            new Account.SignalInstruction(debitResultAwakeable.id());
+        account.asyncDebit(new Account.AsyncDebitInstruction(debitInstruction, signalInstruction));
+        yield debitResultAwakeable.map(
+            asyncDebitResult ->
+                new AccountOperationResult.Debit(asyncDebitResult.debitResult().accountSummary()));
       }
       case AccountOperation.Credit operation -> {
         DurableFuture<Account.CreditResult> creditResultFuture =

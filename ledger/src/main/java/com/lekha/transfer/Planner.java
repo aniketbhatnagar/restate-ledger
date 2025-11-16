@@ -36,7 +36,7 @@ public interface Planner {
           instruction.options().sourceAccountHoldId().get(),
           instruction.amount());
     }
-    return new AccountOperation.Debit(instruction.sourceAccountId(), instruction.amount());
+    return new AccountOperation.AsyncDebit(instruction.sourceAccountId(), instruction.amount());
   }
 
   private static boolean containsHold(Transfer.MoveMoneyInstruction instruction) {

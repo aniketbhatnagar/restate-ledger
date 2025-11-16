@@ -10,6 +10,9 @@ import com.lekha.money.Money;
 @JsonSubTypes({
   @JsonSubTypes.Type(value = AccountOperation.Debit.class, name = AccountOperation.Debit.TYPE_NAME),
   @JsonSubTypes.Type(
+      value = AccountOperation.AsyncDebit.class,
+      name = AccountOperation.AsyncDebit.TYPE_NAME),
+  @JsonSubTypes.Type(
       value = AccountOperation.Credit.class,
       name = AccountOperation.Credit.TYPE_NAME),
   @JsonSubTypes.Type(value = AccountOperation.Hold.class, name = AccountOperation.Hold.TYPE_NAME),
@@ -49,6 +52,22 @@ public sealed interface AccountOperation<
   record Debit(String accountId, Money amountToDebit)
       implements AccountOperation<AccountOperationResult.Debit, AccountOperationResult.Credit> {
     public static final String TYPE_NAME = "debit";
+
+    @Override
+    public Credit reversed(AccountOperationResult.Debit result) {
+      return new Credit(accountId, amountToDebit);
+    }
+
+    @Override
+    public String getType() {
+      return TYPE_NAME;
+    }
+  }
+
+  @JsonTypeName(AsyncDebit.TYPE_NAME)
+  record AsyncDebit(String accountId, Money amountToDebit)
+      implements AccountOperation<AccountOperationResult.Debit, AccountOperationResult.Credit> {
+    public static final String TYPE_NAME = "async_debit";
 
     @Override
     public Credit reversed(AccountOperationResult.Debit result) {

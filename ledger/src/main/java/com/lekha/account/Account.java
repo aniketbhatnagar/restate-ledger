@@ -23,13 +23,22 @@ public class Account {
 
   public record OperationMetadata() {}
 
+  public record SignalInstruction(String signalId) {}
+
   public record DebitInstruction(Money amountToDebit, OperationMetadata metadata) {}
+
+  public record AsyncDebitInstruction(
+      DebitInstruction debitInstruction, SignalInstruction signalInstruction) {}
 
   public record AccountBalances(Money availableBalance, Money holdBalance) {}
 
   public record AccountSummary(String accountId, AccountBalances balances) {}
 
   public record DebitResult(AccountSummary accountSummary) {}
+
+  public record Signal(String signalId) {}
+
+  public record AsyncDebitResult(DebitResult debitResult, Signal signal) {}
 
   public record CreditInstruction(Money amountToCredit, OperationMetadata metadata) {}
 
@@ -93,6 +102,18 @@ public class Account {
     }
 
     return this.getSummary(ctx);
+  }
+
+  @Handler
+  public void asyncDebit(ObjectContext ctx, AsyncDebitInstruction instruction) {
+    String signalId = instruction.signalInstruction().signalId();
+    try {
+      DebitResult result = debit(ctx, instruction.debitInstruction());
+      ctx.awakeableHandle(signalId)
+          .resolve(AsyncDebitResult.class, new AsyncDebitResult(result, new Signal(signalId)));
+    } catch (Exception e) {
+      ctx.awakeableHandle(signalId).reject(e.getMessage());
+    }
   }
 
   @Handler
