@@ -3,12 +3,15 @@ package com.lekha.account;
 import com.lekha.ledger.Ledger;
 import com.lekha.money.Currency;
 import com.lekha.money.Money;
+import com.lekha.utils.Batcher;
 import dev.restate.sdk.ObjectContext;
 import dev.restate.sdk.SharedObjectContext;
 import dev.restate.sdk.annotation.Handler;
 import dev.restate.sdk.annotation.Shared;
 import dev.restate.sdk.annotation.VirtualObject;
 import dev.restate.sdk.common.TerminalException;
+import dev.restate.serde.TypeRef;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -106,14 +109,44 @@ public class Account {
 
   @Handler
   public void asyncDebit(ObjectContext ctx, AsyncDebitInstruction instruction) {
-    String signalId = instruction.signalInstruction().signalId();
-    try {
-      DebitResult result = debit(ctx, instruction.debitInstruction());
-      ctx.awakeableHandle(signalId)
-          .resolve(AsyncDebitResult.class, new AsyncDebitResult(result, new Signal(signalId)));
-    } catch (Exception e) {
-      ctx.awakeableHandle(signalId).reject(e.getMessage());
-    }
+    Batcher<AsyncDebitInstruction> batcher =
+        new Batcher<>(ctx, "debit_batcher", new TypeRef<>() {});
+    Batcher<AsyncDebitInstruction>.Appender appender =
+        batcher.appender(
+            1000,
+            Duration.ofMillis(100L),
+            (_ctx, batchName, delay) -> {
+              AccountClient.ContextClient.Send accountClient =
+                  AccountClient.fromContext(_ctx, _ctx.key()).send();
+              if (delay.isPresent()) {
+                return accountClient.batchDebit(batchName, delay.get());
+              } else {
+                return accountClient.batchDebit(batchName);
+              }
+            });
+    appender.addToBatch(instruction);
+  }
+
+  @Handler
+  public void batchDebit(ObjectContext ctx, String batchName) {
+    Batcher<AsyncDebitInstruction> batcher = new Batcher<>(ctx, batchName, new TypeRef<>() {});
+    batcher
+        .executor()
+        .executeBatch(
+            instructions -> {
+              for (AsyncDebitInstruction instruction : instructions) {
+                String signalId = instruction.signalInstruction().signalId();
+                try {
+                  DebitResult result = debit(ctx, instruction.debitInstruction());
+                  ctx.awakeableHandle(signalId)
+                      .resolve(
+                          AsyncDebitResult.class,
+                          new AsyncDebitResult(result, new Signal(signalId)));
+                } catch (Exception e) {
+                  ctx.awakeableHandle(signalId).reject(e.getMessage());
+                }
+              }
+            });
   }
 
   @Handler
