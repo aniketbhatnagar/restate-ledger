@@ -5,6 +5,7 @@ import com.lekha.ledger.Ledger;
 import com.lekha.ledger.LedgerClient;
 import com.lekha.money.Money;
 import dev.restate.sdk.ObjectContext;
+import java.util.List;
 
 public class LedgerRecorder {
 
@@ -32,6 +33,30 @@ public class LedgerRecorder {
             metadata);
     // Ledger entries can be posted async
     ledgerClient.recordBalanceChange(instruction);
+  }
+
+  public record OperationDetails(Money amount, Account.OperationMetadata metadata) {}
+
+  public void bulkRecordBalanceChangeInLedger(
+      String idemSuffix,
+      Ledger.Operation operation,
+      Account.AccountSummary accountSummary,
+      List<OperationDetails> allOperationDetails) {
+    List<Ledger.OperationDetails> ledgerOperationDetails =
+        allOperationDetails.stream()
+            .map(
+                operationDetails ->
+                    new Ledger.OperationDetails(operationDetails.amount, operationDetails.metadata))
+            .toList();
+    Ledger.BulkRecordBalanceChangeInstruction instruction =
+        new Ledger.BulkRecordBalanceChangeInstruction(
+            ledgerIdem(idemSuffix),
+            ledgerTimestampMs(),
+            operation,
+            accountSummary,
+            ledgerOperationDetails);
+    // Ledger entries can be posted async
+    ledgerClient.bulkRecordBalanceChange(instruction);
   }
 
   public void recordHoldBalanceChangeInLedger(

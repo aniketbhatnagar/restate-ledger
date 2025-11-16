@@ -13,6 +13,7 @@ import dev.restate.sdk.common.TerminalException;
 import dev.restate.serde.TypeRef;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -130,23 +131,82 @@ public class Account {
   @Handler
   public void batchDebit(ObjectContext ctx, String batchName) {
     Batcher<AsyncDebitInstruction> batcher = new Batcher<>(ctx, batchName, new TypeRef<>() {});
-    batcher
-        .executor()
-        .executeBatch(
-            instructions -> {
-              for (AsyncDebitInstruction instruction : instructions) {
-                String signalId = instruction.signalInstruction().signalId();
-                try {
-                  DebitResult result = debit(ctx, instruction.debitInstruction());
-                  ctx.awakeableHandle(signalId)
-                      .resolve(
-                          AsyncDebitResult.class,
-                          new AsyncDebitResult(result, new Signal(signalId)));
-                } catch (Exception e) {
-                  ctx.awakeableHandle(signalId).reject(e.getMessage());
-                }
-              }
-            });
+    batcher.executor().executeBatch(instructions -> batchDebit(ctx, instructions));
+  }
+
+  private void batchDebit(ObjectContext ctx, List<AsyncDebitInstruction> instructions) {
+    if (instructions.isEmpty()) {
+      return;
+    }
+    try (AccountBalancesState accountBalancesState = AccountBalancesState.getExisting(ctx)) {
+      String accountId = ctx.key();
+
+      BulkDebitUpdateResult updateResult =
+          executeBulkDebit(ctx, accountBalancesState, instructions);
+      AccountSummary accountSummary = accountBalancesState.accountSummary();
+
+      LedgerRecorder ledgerRecorder = new LedgerRecorder(ctx, accountId);
+      List<LedgerRecorder.OperationDetails> allOperationDetails =
+          updateResult.successfulInstructions().stream()
+              .map(
+                  instruction ->
+                      new LedgerRecorder.OperationDetails(
+                          instruction.debitInstruction.amountToDebit,
+                          instruction.debitInstruction.metadata))
+              .toList();
+      if (!allOperationDetails.isEmpty()) {
+        ledgerRecorder.bulkRecordBalanceChangeInLedger(
+            "account_debit", Ledger.Operation.DEBIT, accountSummary, allOperationDetails);
+      }
+
+      for (AsyncDebitInstruction instruction : updateResult.successfulInstructions()) {
+        String signalId = instruction.signalInstruction().signalId();
+        try {
+          DebitResult result = new DebitResult(accountSummary);
+          ctx.awakeableHandle(signalId)
+              .resolve(AsyncDebitResult.class, new AsyncDebitResult(result, new Signal(signalId)));
+        } catch (Exception e) {
+          ctx.awakeableHandle(signalId).reject(e.getMessage());
+        }
+      }
+      for (AsyncDebitInstruction instruction : updateResult.failedInstructions()) {
+        String signalId = instruction.signalInstruction().signalId();
+        ctx.awakeableHandle(signalId).reject("Debit failed");
+      }
+    }
+  }
+
+  private record BulkDebitUpdateResult(
+      List<AsyncDebitInstruction> successfulInstructions,
+      List<AsyncDebitInstruction> failedInstructions) {}
+
+  private BulkDebitUpdateResult executeBulkDebit(
+      ObjectContext ctx,
+      AccountBalancesState accountBalancesState,
+      List<AsyncDebitInstruction> instructions) {
+    AccountOptions accountOptions = AccountOptionsState.getExisting(ctx).accountOptions();
+    if (accountOptions.accountType().doDebitsDecreaseBalance()) {
+      List<AsyncDebitInstruction> successfulInstructions = new LinkedList<>();
+      List<AsyncDebitInstruction> failedInstructions = new LinkedList<>();
+      for (AsyncDebitInstruction instruction : instructions) {
+        Money amountToDebit = instruction.debitInstruction.amountToDebit;
+        if (accountBalancesState.availableBalance().isLessThan(amountToDebit)) {
+          failedInstructions.add(instruction);
+        } else {
+          accountBalancesState.subtractAvailableBalance(amountToDebit);
+          successfulInstructions.add(instruction);
+        }
+      }
+      return new BulkDebitUpdateResult(successfulInstructions, failedInstructions);
+    } else {
+      Money amountToDebit =
+          instructions.stream()
+              .map(instruction -> instruction.debitInstruction.amountToDebit)
+              .reduce(Money::add)
+              .get();
+      accountBalancesState.addAvailableBalance(amountToDebit);
+      return new BulkDebitUpdateResult(instructions, List.of());
+    }
   }
 
   @Handler
